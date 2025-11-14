@@ -1,0 +1,302 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>TurboTradeX — Lap-based Race Tester</title>
+<script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+<style>
+  :root {
+    --bg: #0b0f14;
+    --panel: #0f1720;
+    --muted: #99a3ad;
+    --accent: #ff4655;
+    --ok: #0fd17a;
+    --warn: #ffc700;
+  }
+  body { background: var(--bg); color: #e6eef6; font-family: Inter, system-ui, Arial; padding: 20px; font-size: 14px; }
+  h1 { margin: 0 0 8px 0; color: var(--accent); }
+  .controls { margin: 12px 0; }
+  button { background: var(--accent); color: white; border: none; padding: 10px 14px; border-radius: 6px; cursor: pointer; }
+  button:disabled { background: #555; cursor: not-allowed; }
+  .banner { padding: 8px 12px; border-radius: 6px; margin-bottom: 12px; background: #071018; color: var(--muted); }
+  .grid { display: grid; grid-template-columns: 1fr 360px; gap: 18px; align-items: start; }
+  table { width: 100%; border-collapse: collapse; background: var(--panel); border-radius: 6px; overflow: hidden; }
+  th, td { padding: 8px 10px; text-align: center; border-bottom: 1px solid rgba(255,255,255,0.03); font-size: 14px; white-space: nowrap; }
+  thead th { background: rgba(255,255,255,0.02); color: var(--muted); font-weight: 600; font-size: 13px; }
+  tbody tr:nth-child(odd) { background: rgba(255,255,255,0.01); }
+  tbody tr.leader { background: rgba(255,70,85,0.06); }
+  .events { background: var(--panel); padding: 12px; height: 540px; overflow-y: auto; border-radius: 6px; }
+  .event { padding: 6px 8px; margin-bottom: 6px; border-radius: 4px; font-size: 13px; color: #dbe9f7; }
+  .ev-lap { color: #9fd3ff; }
+  .ev-lead { color: #ffd28a; }
+  .ev-info { color: var(--muted); }
+  .ev-pit { color: #c0aeff; }
+  .ev-crash { color: #ff8f8f; background: rgba(255,70,85,0.06); }
+  .ev-safety { color: #ffe38a; background: rgba(255,199,0,0.06); font-weight: 600; }
+  .ev-recover { color: var(--ok); }
+  .small { font-size: 12px; color: var(--muted); }
+  .status { display:inline-block; padding:4px 8px; border-radius:999px; font-weight:600; font-size: 12px; }
+  .ok { background: rgba(15,209,122,0.08); color: var(--ok); }
+  .finish { background: rgba(15, 120, 209, 0.08); color: #69b7ff; }
+  .warn { background: rgba(255,199,0,0.08); color: var(--warn); }
+  .crash { background: rgba(255,30,30,0.08); color: #ff6b6b; }
+  .dnf { background: rgba(255,30,30,0.12); color: #ff6b6b; font-weight: 700; }
+  .points-col { color: var(--warn); font-weight: 700; }
+  .empty-points { color: rgba(255,255,255,0.18); font-weight: 400; }
+  .footer { margin-top: 14px; color: var(--muted); font-size: 13px; }
+</style>
+</head>
+<body>
+
+<h1>TurboTradeX — Race Engine</h1>
+
+<div class="controls">
+  <button id="startBtn">Start Race</button>
+  <span style="margin-left:12px" class="small">Backend: <strong>http://localhost:3001</strong></span>
+</div>
+
+<div class="banner" id="raceBanner">
+  Status: <span id="statusText">Idle</span> 
+  — Current Tick: <span id="tick">0</span>
+  <span id="safetyCarStatus" style="display:none; color: var(--warn); font-weight: 700; margin-left: 12px;">(SAFETY CAR ACTIVE)</span>
+</div>
+
+<div class="grid">
+  <div>
+    <table aria-live="polite">
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>Name</th>
+          <th>Distance</th>
+          <th>Speed</th>
+          <th>Laps</th>
+          <th>Points</th>
+          <th>Tyre</th>
+          <th>Price</th>
+          <th>Status</th>
+        </tr>
+      </thead>
+      <tbody id="tbody">
+        </tbody>
+    </table>
+
+    <div class="footer">
+      Note: The "Points" column shows live **Provisional Points** during the race and **Final Points** after it ends.
+    </div>
+  </div>
+
+  <div>
+    <div style="display:flex; gap:10px; margin-bottom:8px;">
+      <div style="flex:1; background:var(--panel); padding:10px; border-radius:6px;">
+        <div class="small">Race Config</div>
+        <div id="trackConfig" style="font-weight:700; font-size:18px;">—</div>
+        <div id="lapsConfig" class="small">— Laps</div>
+      </div>
+
+      <div style="width:160px; background:var(--panel); padding:10px; border-radius:6px; text-align:center;">
+        <div class="small">Leader</div>
+        <div id="leaderName" style="font-weight:700; font-size:16px;">—</div>
+        <div id="leaderLap" class="small">Lap: —</div>
+      </div>
+    </div>
+
+    <div class="events" id="events">
+      </div>
+  </div>
+</div>
+
+<script>
+  const SOCKET_URL = "http://localhost:3001";
+  const API_URL = "http://localhost:3001";
+
+  const socket = io(SOCKET_URL, { transports: ["websocket"], reconnection: true });
+
+  const tbody = document.getElementById("tbody");
+  const eventsDiv = document.getElementById("events");
+  const startBtn = document.getElementById("startBtn");
+  const statusText = document.getElementById("statusText");
+  const tickEl = document.getElementById("tick");
+  const leaderName = document.getElementById("leaderName");
+  const leaderLap = document.getElementById("leaderLap");
+  const trackConfig = document.getElementById("trackConfig");
+  const lapsConfig = document.getElementById("lapsConfig");
+  const safetyCarStatus = document.getElementById("safetyCarStatus");
+  
+  let currentRacers = []; // Store racer data for name lookups
+
+  function getRacerName(id) {
+    const racer = currentRacers.find(r => r.id === id);
+    return racer ? racer.name : `Racer #${id}`;
+  }
+
+  function formatPoints(p) {
+    if (p === null || p === undefined || p === 0) return '<span class="empty-points">—</span>';
+    return String(p);
+  }
+
+  function pushEvent(text, cls = 'ev-info') {
+    const el = document.createElement('div');
+    el.className = 'event ' + cls;
+    el.innerHTML = text;
+    eventsDiv.prepend(el);
+  }
+
+  socket.on("connect", () => {
+    pushEvent("Connected to backend (socket)", "ev-info");
+  });
+
+  socket.on("race_event", (ev) => {
+    switch(ev.type) {
+      case 'race_start':
+        statusText.textContent = 'Racing';
+        trackConfig.textContent = `${ev.track.charAt(0).toUpperCase() + ev.track.slice(1)} (${ev.condition})`;
+        lapsConfig.textContent = `${ev.laps} Laps`;
+        pushEvent(`Race started: ${ev.track} (${ev.condition}), ${ev.laps} laps`, 'ev-info');
+        renderTable([], false); // Clear table
+        break;
+      
+      case 'race_end':
+        pushEvent('Race has ended.', 'ev-info');
+        break;
+
+      case "lap_complete":
+        pushEvent(`Lap ${ev.lap} for ${getRacerName(ev.racerId)} <span class="small">(${(ev.lapMs/1000).toFixed(2)}s)</span>`, 'ev-lap');
+        break;
+
+      case "lead_change":
+        pushEvent(`Lead change: ${getRacerName(ev.newLeader)} is now P1!`, 'ev-lead');
+        break;
+        
+      case 'fastest_lap_new':
+        pushEvent(`New Fastest Lap by ${getRacerName(ev.racerId)}! <span class="small">(${(ev.lapMs/1000).toFixed(2)}s)</span>`, 'ev-lead');
+        break;
+
+      case 'pit_planned':
+        pushEvent(`${getRacerName(ev.racerId)} plans to pit (Tyre: ${ev.tyreWear})`, 'ev-pit');
+        break;
+      case 'pit_in':
+        pushEvent(`${getRacerName(ev.racerId)} enters the pits.`, 'ev-pit');
+        break;
+      case 'pit_out':
+        pushEvent(`${getRacerName(ev.racerId)} exits the pits.`, 'ev-pit');
+        break;
+
+      case 'crash_dnf':
+        pushEvent(`CRASH (DNF): ${getRacerName(ev.racerId)} is out!`, 'ev-crash');
+        break;
+      case 'crash_pit':
+        pushEvent(`CRASH: ${getRacerName(ev.racerId)} limps to the pits for repair.`, 'ev-crash');
+        break;
+      case 'crash_minor':
+        pushEvent(`CRASH (Minor): ${getRacerName(ev.racerId)} has crashed!`, 'ev-crash');
+        break;
+      case 'recovered':
+        pushEvent(`${getRacerName(ev.racerId)} has recovered and rejoins.`, 'ev-recover');
+        break;
+        
+      case 'safety_car':
+        pushEvent(`SAFETY CAR DEPLOYED (Duration: ${ev.duration} ticks)`, 'ev-safety');
+        break;
+      case 'safety_car_end':
+        pushEvent('SAFETY CAR ending this lap.', 'ev-safety');
+        break;
+        
+      default:
+        pushEvent(JSON.stringify(ev), 'ev-info');
+    }
+  });
+
+  socket.on("race_update", (data) => {
+    currentRacers = data.racers; // Update racer cache
+    tickEl.textContent = data.tick ?? '0';
+    safetyCarStatus.style.display = data.safetyCar ? 'inline' : 'none';
+    
+    renderTable(data.racers, false);
+    
+    const leader = data.racers.find(r => r.rank === 1);
+    if (leader) {
+      leaderName.textContent = `${leader.name}`;
+      leaderLap.textContent = `Lap: ${leader.lapsCompleted}`;
+    }
+  });
+
+  socket.on("race_finished", (payload) => {
+    currentRacers = payload.racers; // Final data
+    tickEl.textContent = payload.tick ?? '0';
+    statusText.textContent = 'Finished';
+    safetyCarStatus.style.display = 'none';
+    
+    pushEvent(`Race finished — Winner: ${payload.racers[0].name} (P${payload.racers[0].rank})`, 'ev-lead');
+
+    // render final table including points
+    renderTable(payload.racers, true);
+  });
+
+  /**
+   * Unified render function for live and final table
+   */
+  function renderTable(racers, isFinished = false) {
+    tbody.innerHTML = '';
+    
+    for (const r of racers) {
+      const tr = document.createElement('tr');
+      if (r.rank === 1) tr.classList.add('leader');
+
+      let statusHtml = '';
+      if (r.dnf) {
+        statusHtml = '<span class="status dnf">DNF</span>';
+      } else if (isFinished) {
+        statusHtml = '<span class="status finish">Finished</span>';
+      } else if (r.finished) {
+        statusHtml = '<span class="status finish">Finished</span>';
+      } else if (r.pitEntering) {
+        statusHtml = '<span class="status warn">Pitting</span>';
+      } else if (r.inPit) {
+        statusHtml = '<span class="status warn">In Pit</span>';
+      } else if (r.crashed) {
+        statusHtml = '<span class="status crash">Crashed</span>';
+      } else {
+        statusHtml = '<span class="status ok">OK</span>';
+      }
+      
+      const points = isFinished ? r.finalPoints : r.provisionalPoints;
+      const speed = isFinished ? '—' : r.speed;
+      const tyre = isFinished ? '—' : Math.round(r.tyreWear);
+      const price = `$${r.price.toFixed(2)}`;
+
+      tr.innerHTML = `
+        <td>${r.rank}</td>
+        <td style="text-align:left; padding-left: 14px;">${r.name}</td>
+        <td>${r.distance}</td>
+        <td>${speed}</td>
+        <td>${r.lapsCompleted}</td>
+        <td class="points-col">${formatPoints(points)}</td>
+        <td>${tyre}</td>
+        <td>${price}</td>
+        <td>${statusHtml}</td>
+      `;
+      tbody.appendChild(tr);
+    }
+  }
+
+  startBtn.addEventListener('click', async () => {
+    try {
+      startBtn.disabled = true;
+      // This endpoint name /start-race is assumed from your original file.
+      // Make sure your backend actually has this.
+      await fetch(API_URL + '/start-race', { method: 'POST' });
+      setTimeout(() => startBtn.disabled = false, 2000); // Re-enable after a delay
+    } catch (err) {
+      console.error(err);
+      pushEvent('Failed to start race (backend may be down)', 'ev-crash');
+      startBtn.disabled = false;
+    }
+  });
+  
+  // Initial render of empty table
+  renderTable([], false);
+</script>
+
+</body>
+</html>
