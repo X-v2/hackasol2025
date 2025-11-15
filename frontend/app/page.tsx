@@ -1,7 +1,6 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import { Trophy, Flame, Activity, ArrowUp, ArrowDown, Star, TrendingUp, X, ShoppingCart, Gavel, Clock, ListPlus, AlertCircle, Info, Menu } from 'lucide-react'
 import RaceViewer2D from "@/components/RaceViewer2D"
 import { WalletLoginModal } from "@/components/wallet-login-modal"
 import { useAuth } from "@/lib/auth-context"
@@ -9,6 +8,17 @@ import React from 'react';
 import BettingPage from '@/components/betting-page';
 import AuctionPage from '@/components/auction-page';
 import { io, Socket } from "socket.io-client"
+import CategoricalBettingPage from '@/components/categorical-betting-page';
+// Updated lucide-react import
+import { Trophy, Flame, Activity, ArrowUp, ArrowDown, Star, TrendingUp, X, ShoppingCart, Gavel, Clock, ListPlus, AlertCircle, Info, Menu, Zap, Shield, Target, Gauge, Sparkles, Globe } from 'lucide-react'
+// Imports for the new Dropdown
+import { Button } from "@/components/ui/button"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 
 // Config and Interfaces
 const SOCKET_URL = "http://localhost:3001";
@@ -46,6 +56,19 @@ interface RaceConfig {
   track: string;
   condition: string;
   laps: number;
+}
+
+// This holds the STATIC base stats from the /racers endpoint
+interface BackendRacer {
+  id: number;
+  owner: string;
+  name: string;
+  speed: number;
+  aggression: number;
+  consistency: number;
+  handling: number;
+  tyreManagement: number;
+  currentPrice: string; // This is the base price
 }
 
 
@@ -128,7 +151,7 @@ function WalletConnectionScreen() {
           <h1 className="text-3xl sm:text-4xl font-black text-transparent bg-clip-text bg-linear-to-r from-red-400 to-amber-300 mb-2">
             TurboTradeX
           </h1>
-          <p className="text-red-300 text-sm">Formula 1 × Wall Street × Web3</p>
+          <p className="text-red-300 text-sm"></p>
         </div>
 
         <div className="bg-gradient-to-b from-slate-900/80 to-red-900/30 border border-red-700/50 rounded-2xl p-6 sm:p-8 space-y-6 backdrop-blur-sm">
@@ -231,17 +254,115 @@ function WalletConnectionScreen() {
   )
 }
 
+
+// --- Racer Details Modal Component ---
+interface RacerDetailsModalProps {
+  racer: BackendRacer;
+  onClose: () => void;
+}
+
+function RacerDetailsModal({ racer, onClose }: RacerDetailsModalProps) {
+
+  // 1. Rarity Logic
+  const getRacerRarity = (racer: BackendRacer) => {
+    // Calculate an overall score based on backend stats
+    const overall = (racer.speed + racer.aggression + racer.consistency + racer.handling + racer.tyreManagement) / 5;
+
+    if (overall >= 80) { // Legendary (Top 20%)
+      return { name: "Legendary", color: "bg-red-900/50 text-red-300 border-red-600" };
+    }
+    if (overall >= 70) { // Epic (Top 30%)
+      return { name: "Epic", color: "bg-purple-900/50 text-purple-300 border-purple-600" };
+    }
+    if (overall >= 50) { // Rare (Top 50%)
+      return { name: "Rare", color: "bg-blue-900/50 text-blue-300 border-blue-600" };
+    }
+    // Common (Bottom 50%)
+    return { name: "Common", color: "bg-slate-800/50 text-slate-300 border-slate-600" };
+  }
+
+  // 2. Stat Bar Helper Component
+  const StatBar = ({ label, value, icon, colorClass }: { label: string, value: number, icon: React.ReactNode, colorClass: string }) => (
+    <div className="space-y-1">
+      <div className="flex justify-between items-center text-xs font-semibold">
+        <div className={`flex items-center gap-1.5 ${colorClass}`}>
+          {icon}
+          <span>{label}</span>
+        </div>
+        <span className="text-white">{value}</span>
+      </div>
+      <div className="w-full bg-slate-900/50 rounded-full h-2 border border-slate-700/50">
+        <div 
+          className={`h-full rounded-full ${colorClass.replace('text', 'bg').replace('-300', '-500')}`} 
+          style={{ width: `${value}%` }}
+        ></div>
+      </div>
+    </div>
+  );
+
+  const rarity = getRacerRarity(racer);
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <div
+        className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+        onClick={onClose}
+      />
+      <div className="relative bg-gradient-to-b from-slate-900 to-slate-950 rounded-2xl border border-amber-700/30 w-full max-w-md shadow-2xl overflow-hidden">
+        <button
+          onClick={onClose}
+          className="absolute top-4 right-4 p-2 hover:bg-slate-800 rounded-lg transition-all z-10"
+        >
+          <X className="w-5 h-5 text-amber-300" />
+        </button>
+        <div className="p-6 space-y-6">
+          {/* Header */}
+          <div className="flex items-center gap-4">
+            <h3 className="text-2xl font-bold text-white">{racer.name}</h3>
+            <span className={`text-xs font-bold px-3 py-1 rounded-full border ${rarity.color}`}>
+              {rarity.name}
+            </span>
+          </div>
+          
+          {/* Stats Grid */}
+          <div className="space-y-4">
+            <StatBar label="Base Speed" value={racer.speed} icon={<Gauge className="w-4 h-4" />} colorClass="text-red-300" />
+            <StatBar label="Aggression (Risk)" value={racer.aggression} icon={<Zap className="w-4 h-4" />} colorClass="text-red-400" />
+            <StatBar label="Handling" value={racer.handling} icon={<Target className="w-4 h-4" />} colorClass="text-blue-300" />
+            <StatBar label="Consistency" value={racer.consistency} icon={<Shield className="w-4 h-4" />} colorClass="text-green-300" />
+            <StatBar label="Tyre Management" value={racer.tyreManagement} icon={<Sparkles className="w-4 h-4" />} colorClass="text-yellow-300" />
+          </div>
+
+          {/* Other Details */}
+          <div className="bg-slate-900/60 p-4 rounded-lg border border-slate-700/50 space-y-3">
+             <div className="flex justify-between text-sm">
+              <span className="text-slate-400">Owner</span>
+              <span className="font-mono text-amber-400 text-xs">{racer.owner.slice(0, 16)}...</span>
+            </div>
+             <div className="flex justify-between text-sm">
+              <span className="text-slate-400">Base Price</span>
+              <span className="text-white font-semibold">${parseFloat(racer.currentPrice).toFixed(2)}</span>
+            </div>
+          </div>
+
+        </div>
+      </div>
+    </div>
+  );
+}
+
+
 function DashboardPage({ walletAddress, walletHolder, isWalletConnected }: { walletAddress: string | null; walletHolder: string | null; isWalletConnected: boolean }) {
-  // ... (existing states)
-  const [selectedRacer, setSelectedRacer] = useState(8)
+  // --- States for mock trading modals ---
+  const [selectedRacer, setSelectedRacer] = useState(8) // This is for the OLD modal
   const [activeModal, setActiveModal] = useState<string | null>(null)
   const [bidAmount, setBidAmount] = useState("")
   const [listPrice, setListPrice] = useState("")
   const [auctionPrice, setAuctionPrice] = useState("")
   const [saleFilter, setSaleFilter] = useState("all")
-  const [showDetailsModal, setShowDetailsModal] = useState(false)
   const [showMobileMenu, setShowMobileMenu] = useState(false)
   const [showWalletModal, setShowWalletModal] = useState(false)
+  const [showDetailsModal, setShowDetailsModal] = useState(false) // This is the OLD mock details modal
   
   // --- Live Data States ---
   const [leaderboard, setLeaderboard] = useState<Racer[]>([]);
@@ -250,12 +371,34 @@ function DashboardPage({ walletAddress, walletHolder, isWalletConnected }: { wal
   const [isConnected, setIsConnected] = useState(false);
   const [currentTick, setCurrentTick] = useState(0);
 
-  // ... (mock racePrices and positions state)
+  // --- States for NEW Racer Details Modal ---
+  const [racerStats, setRacerStats] = useState<BackendRacer[]>([]);
+  const [selectedRacerIdForModal, setSelectedRacerIdForModal] = useState<number | null>(null);
+  const [showRacerModal, setShowRacerModal] = useState(false);
+
+  // --- NEW: State for Language Selector ---
+  const [language, setLanguage] = useState("English");
+
+  // --- Mock data states (for mock trading modals) ---
   const [racePrices, setRacePrices] = useState({ 8: 3400, 12: 4200, 3: 2800, 15: 3100, })
   const [positions, setPositions] = useState([ { id: 12, name: "ViperRacer", speed: 312, lapTime: "1:28.4", color: "#dc2626" }, { id: 8, name: "NeonDrift", speed: 308, lapTime: "1:28.7", color: "#f59e0b" }, { id: 3, name: "SteelFalcon", speed: 305, lapTime: "1:29.2", color: "#c0c0c0" }, ])
 
-  // --- Socket Connection useEffect ---
+  // --- Socket Connection & STATS FETCHING useEffect ---
   useEffect(() => {
+    // 1. Fetch Static Racer Stats
+    async function fetchRacerStats() {
+      try {
+        const response = await fetch(`${SOCKET_URL}/racers`);
+        if (!response.ok) throw new Error("Failed to fetch racer stats");
+        const data: BackendRacer[] = await response.json();
+        setRacerStats(data);
+      } catch (err) {
+        console.error(err);
+      }
+    }
+    fetchRacerStats();
+
+    // 2. Connect to Socket
     const socket: Socket = io(SOCKET_URL, {
       transports: ["websocket"],
     });
@@ -272,7 +415,6 @@ function DashboardPage({ walletAddress, walletHolder, isWalletConnected }: { wal
       setCommentary(prev => [{ type: 'local_disconnect', message: 'Disconnected from race server.' }, ...prev]);
     });
 
-    // Listen for race start info
     socket.on("race_event", (event: RaceEvent) => {
       if (event.tick) setCurrentTick(event.tick);
       if (event.type === 'race_start') {
@@ -281,20 +423,18 @@ function DashboardPage({ walletAddress, walletHolder, isWalletConnected }: { wal
           condition: event.condition || 'Unknown',
           laps: event.laps || 10,
         });
-        setCurrentTick(event.tick || 0); // Reset tick on race start
+        setCurrentTick(event.tick || 0); 
         setCommentary(prev => [event, ...prev.filter(e => e.type.startsWith('local_'))].slice(0, 50));
       } else {
         setCommentary(prev => [event, ...prev].slice(0, 50));
       }
     });
 
-    // Listen for live leaderboard updates
     socket.on("race_update", (data: { racers: Racer[], tick?: number }) => {
       setLeaderboard(data.racers);
       if (data.tick) setCurrentTick(data.tick);
     });
 
-    // Listen for final results
     socket.on("race_finished", (data: { racers: Racer[], tick?: number }) => {
       setLeaderboard(data.racers);
       if (data.tick) setCurrentTick(data.tick);
@@ -306,10 +446,10 @@ function DashboardPage({ walletAddress, walletHolder, isWalletConnected }: { wal
     };
   }, []);
 
-  // ... (mock racePrices useEffect)
+  // useEffect for mock price fluctuation
   useEffect(() => {
     const interval = setInterval(() => {
-      setRacePrices((prev) => ({
+      setRacePrices((prev: typeof racePrices) => ({
         ...prev,
         8: Math.max(2000, prev[8] + (Math.random() - 0.5) * 100),
         12: Math.max(2500, prev[12] + (Math.random() - 0.5) * 120),
@@ -318,23 +458,23 @@ function DashboardPage({ walletAddress, walletHolder, isWalletConnected }: { wal
       }))
     }, 1500)
     return () => clearInterval(interval)
-  }, [])
+  }, []) // Empty array, so it runs once
 
-  // ... (handleDisconnectWallet function)
   const handleDisconnectWallet = () => {
     localStorage.removeItem("userWallet")
     localStorage.removeItem("walletHolder")
     window.location.reload()
   }
 
-  // ... (mock racerData, saleListings, tradeHistory)
+  // --- MOCK DATA (for mock trading modals) ---
   const racerData = [ { id: 8, name: "NeonDrift", helmet: "🟠", speed: 88, grip: 76, aero: 72, price: racePrices[8], change: 7.8, wins: 9, rarity: "Legendary", team: "Ferrari Racing", championships: 3, }, { id: 12, name: "ViperRacer", helmet: "🔴", speed: 92, grip: 70, aero: 74, price: racePrices[12], change: 12.3, wins: 12, rarity: "Mythic", team: "Red Velocitas", championships: 5, }, { id: 3, name: "SteelFalcon", helmet: "⚪", speed: 85, grip: 82, aero: 88, price: racePrices[3], change: -3.2, wins: 7, rarity: "Epic", team: "Silver Arrow", championships: 2, }, { id: 15, name: "PhantomX", helmet: "🟡", speed: 87, grip: 79, aero: 81, price: racePrices[15], change: 5.4, wins: 6, rarity: "Rare", team: "Golden Apex", championships: 1, }, ]
   const saleListings = [ { id: 101, racer: "NeonDrift #8", seller: "0x7A3B...2C1F", price: 3600, listedAt: "2 hours ago", status: "active", bids: 5, }, { id: 102, racer: "ViperRacer #12", seller: "0x9E2D...4K8L", price: 4500, listedAt: "5 hours ago", status: "active", bids: 12, }, { id: 103, racer: "SteelFalcon #3", seller: "0x3F6E...9M2P", price: 2900, listedAt: "1 day ago", status: "ending", bids: 3, }, { id: 104, racer: "PhantomX #15", seller: "0xB4C9...7R5Q", price: 3250, listedAt: "12 hours ago", status: "active", bids: 8, }, ]
   const tradeHistory = [ { id: 1, racer: "NeonDrift #8", action: "Sold", price: 3200, date: "2 days ago", buyer: "0x1A2B...3C4D" }, { id: 2, racer: "ViperRacer #12", action: "Purchased", price: 3800, date: "1 week ago", buyer: "You" }, { id: 3, racer: "SteelFalcon #3", action: "Bid Placed", price: 2700, date: "3 days ago", buyer: "Pending" }, { id: 4, racer: "PhantomX #15", action: "Minted", price: 2500, date: "2 weeks ago", buyer: "Genesis" }, ]
   
+  // This finds the selected racer for the MOCK modals
   const selectedRacerData = racerData.find((r) => r.id === selectedRacer)
 
-  // ... (renderModalContent function is unchanged)
+  // renderModalContent function (for mock trading)
   const renderModalContent = () => {
     if (!selectedRacerData) {
       return <div>Loading racer data...</div>;
@@ -531,6 +671,19 @@ function DashboardPage({ walletAddress, walletHolder, isWalletConnected }: { wal
     }
   }
 
+  // --- NEW: Click Handler for Racer Details Modal ---
+  const handleRacerClick = (racerId: number) => {
+    // We only show the modal if we have the stats loaded
+    if (racerStats.length > 0) {
+      setSelectedRacerIdForModal(racerId);
+      setShowRacerModal(true);
+    } else {
+      console.log("Racer stats not loaded yet.");
+    }
+  };
+  const selectedRacerForModal = racerStats.find(r => r.id === selectedRacerIdForModal);
+
+
   const formatTime = (ticks: number) => {
     const totalSeconds = ticks || 0; 
     const minutes = Math.floor(totalSeconds / 60);
@@ -538,7 +691,6 @@ function DashboardPage({ walletAddress, walletHolder, isWalletConnected }: { wal
     return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
   };
 
-  // --- UPDATED: Emojis removed ---
   const formatEvent = (event: RaceEvent): string => {
     const getRacerName = (id?: number) => {
       if (id === undefined) return 'N/A';
@@ -586,7 +738,6 @@ function DashboardPage({ walletAddress, walletHolder, isWalletConnected }: { wal
     return 'bg-slate-800/40 border-amber-700/20';
   };
 
-  // --- NEW: Helper function for rich status badges ---
   const getStatus = (racer: Racer) => {
     const baseClass = "text-xs font-semibold px-2.5 py-0.5 rounded-full";
     if (racer.dnf) {
@@ -611,7 +762,7 @@ function DashboardPage({ walletAddress, walletHolder, isWalletConnected }: { wal
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-950 via-red-950/20 to-slate-900 text-slate-100">
-      {/* ... (Background grid and Header are unchanged) ... */}
+      {/* ... (Background grid) ... */}
       <div className="fixed inset-0 opacity-5 pointer-events-none">
         <div
           className="absolute inset-0"
@@ -623,6 +774,7 @@ function DashboardPage({ walletAddress, walletHolder, isWalletConnected }: { wal
         />
       </div>
 
+      {/* --- HEADER --- */}
       <header className="relative z-20 border-b border-red-900/30 bg-slate-950/60 backdrop-blur-lg">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 py-5 flex items-center justify-between">
           <div className="flex items-center gap-4">
@@ -647,12 +799,31 @@ function DashboardPage({ walletAddress, walletHolder, isWalletConnected }: { wal
                 <div className="text-xs text-amber-400 font-mono">{walletAddress?.slice(0, 10)}...</div>
               </div>
             </button>
-            <button
-              onClick={() => alert('New racer minted successfully!')}
-              className="px-4 py-2 bg-gradient-to-r from-red-600 to-amber-500 rounded-lg text-xs font-semibold hover:shadow-lg hover:shadow-red-500/50 transition-all active:scale-95"
-            >
-              Mint
-            </button>
+            
+            {/* --- LANGUAGE SELECTOR DROPDOWN (Replaces Mint) --- */}
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" size="icon" className="bg-slate-800/50 border-red-700/50 text-slate-300 hover:text-slate-300 hover:bg-slate-800 hover:border-red-600">
+                  <Globe className="h-4 w-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="bg-slate-900 border-slate-700 text-white">
+                <DropdownMenuItem onSelect={() => setLanguage("English")} className="hover:bg-slate-800 focus:bg-slate-800">
+                  English
+                </DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => setLanguage("Hindi")} className="hover:bg-slate-800 focus:bg-slate-800">
+                  Hindi (हिन्दी)
+                </DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => setLanguage("French")} className="hover:bg-slate-800 focus:bg-slate-800">
+                  French (Français)
+                </DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => setLanguage("Spanish")} className="hover:bg-slate-800 focus:bg-slate-800">
+                  Spanish (Español)
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+            {/* --- END OF LANGUAGE SELECTOR --- */}
+
           </div>
         </div>
       </header>
@@ -660,7 +831,7 @@ function DashboardPage({ walletAddress, walletHolder, isWalletConnected }: { wal
       {/* Main Content */}
       <main className="relative z-10 max-w-7xl mx-auto px-4 sm:px-6 py-8 space-y-8">
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Live Race Card */}Live Auctions
+          {/* Live Race Card */}
           <div className="lg:col-span-2 group relative bg-gradient-to-b from-red-900/20 to-slate-900/20 rounded-2xl border border-red-700/30 overflow-hidden">
             <div className="absolute inset-0 bg-gradient-to-r from-red-600/10 to-amber-500/10 opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
             <div className="relative p-6 space-y-5">
@@ -712,7 +883,7 @@ function DashboardPage({ walletAddress, walletHolder, isWalletConnected }: { wal
           <div className="relative p-6 space-y-5">
             <h2 className="text-2xl font-black text-transparent bg-clip-text bg-linear-to-r from-red-400 to-amber-300">Leaderboard</h2>
 
-            {/* --- NEW: Header Row --- */}
+            {/* Header Row */}
             <div className="grid grid-cols-12 gap-4 px-3 text-xs font-semibold text-slate-400 uppercase">
               <div className="col-span-1">#</div>
               <div className="col-span-3">Name</div>
@@ -723,7 +894,7 @@ function DashboardPage({ walletAddress, walletHolder, isWalletConnected }: { wal
               <div className="col-span-2 text-center">Status</div>
             </div>
 
-            {/* --- NEW: Body --- */}
+            {/* Body */}
             <div className="space-y-2 max-h-96 overflow-y-auto pr-2">
               {leaderboard.length === 0 && (
                 <div className="flex items-center gap-4 p-3 bg-slate-800/30 rounded-lg border border-slate-700/30">
@@ -745,7 +916,14 @@ function DashboardPage({ walletAddress, walletHolder, isWalletConnected }: { wal
                   </div>
                   {/* Name & Laps */}
                   <div className="col-span-3 flex-1 min-w-0">
-                    <p className="font-semibold text-white text-sm truncate">{racer.name}</p>
+                    {/* --- THIS IS THE CLICKABLE BUTTON --- */}
+                    <button
+                      onClick={() => handleRacerClick(racer.id)}
+                      className="font-semibold text-white text-sm truncate text-left hover:text-amber-300 transition-colors disabled:hover:text-white disabled:cursor-not-allowed"
+                      disabled={racerStats.length === 0} // Disable if stats not loaded yet
+                    >
+                      {racer.name}
+                    </button>
                     <p className="text-xs text-slate-500">Lap {racer.lapsCompleted}/{raceConfig?.laps || '10'}</p>
                   </div>
                   {/* Speed */}
@@ -776,10 +954,19 @@ function DashboardPage({ walletAddress, walletHolder, isWalletConnected }: { wal
 
         {/* Betting and Auction Sections */}
         <BettingPage racers={leaderboard} raceConfig={raceConfig} />
+        <CategoricalBettingPage racers={leaderboard} raceConfig={raceConfig} />
         <AuctionPage />
       </main>
 
-      {/* ... (All Modals are unchanged) ... */}
+      {/* --- NEW MODAL RENDER --- */}
+      {showRacerModal && selectedRacerForModal && (
+        <RacerDetailsModal 
+          racer={selectedRacerForModal} 
+          onClose={() => setShowRacerModal(false)} 
+        />
+      )}
+
+      {/* --- Your existing mock trading modal --- */}
       {activeModal && (
         <div className="fixed inset-0 z-40 flex items-end sm:items-center justify-center p-4 sm:p-0">
           <div
@@ -802,6 +989,7 @@ function DashboardPage({ walletAddress, walletHolder, isWalletConnected }: { wal
         </div>
       )}
 
+      {/* Note: The old 'showDetailsModal' is now unused, you can remove it if you like */}
       {showDetailsModal && selectedRacerData && (
         <div className="fixed inset-0 z-40 flex items-end sm:items-center justify-center p-4 sm:p-0">
           <div
