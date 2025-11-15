@@ -21,7 +21,7 @@ import {
 } from "@/components/ui/dropdown-menu"
 
 // Config and Interfaces
-const SOCKET_URL = "http://localhost:3001";
+const SOCKET_URL = "https://hackasol2025.onrender.com"
 interface Racer {
   id: number;
   name: string;
