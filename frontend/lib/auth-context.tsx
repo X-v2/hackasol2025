@@ -44,19 +44,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         const accounts = await (window as any).ethereum.request({
           method: "eth_requestAccounts",
         })
-        
+
         if (accounts && accounts.length > 0) {
           const address = accounts[0]
-          
+
           // Create SIWE message for signing
           const message = createSIWEMessage(address)
-          
+
           // Request user to sign the message
           const signature = await (window as any).ethereum.request({
             method: "personal_sign",
             params: [message, address],
           })
-          
+
           if (signature) {
             const userData: WalletUser = {
               address,
@@ -64,7 +64,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
               isVerified: true,
               signedAt: Date.now(),
             }
-            
+
             setUser(userData)
             localStorage.setItem("turbotrade_user", JSON.stringify(userData))
             localStorage.setItem("turbotrade_signature", signature)
@@ -79,7 +79,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           isVerified: true,
           signedAt: Date.now(),
         }
-        
+
         setUser(userData)
         localStorage.setItem("turbotrade_user", JSON.stringify(userData))
       }
@@ -92,7 +92,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const signMessage = async (message: string): Promise<string> => {
     if (!user) throw new Error("No wallet connected")
-    
+
     try {
       if (typeof window !== "undefined" && (window as any).ethereum) {
         const signature = await (window as any).ethereum.request({
@@ -109,6 +109,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }
 
   const disconnectWallet = () => {
+    console.log("[v0] Disconnecting wallet")
     setUser(null)
     localStorage.removeItem("turbotrade_user")
     localStorage.removeItem("turbotrade_signature")

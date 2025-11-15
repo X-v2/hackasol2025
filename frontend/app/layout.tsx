@@ -4,6 +4,7 @@ import { Geist, Geist_Mono } from 'next/font/google'
 import { Analytics } from "@vercel/analytics/next"
 import "./globals.css"
 import { AuthProvider } from "@/lib/auth-context"
+import { SocketProvider } from '@/lib/socket-context' // <-- Import the SocketProvider
 
 const _geist = Geist({ subsets: ["latin"] })
 const _geistMono = Geist_Mono({ subsets: ["latin"] })
@@ -41,7 +42,9 @@ export default function RootLayout({
     <html lang="en" className="dark">
       <body className={`font-sans antialiased`}>
         <AuthProvider>
-          {children}
+          <SocketProvider> {/* <-- Wrap here */}
+            {children}
+          </SocketProvider>
           <Analytics />
         </AuthProvider>
       </body>

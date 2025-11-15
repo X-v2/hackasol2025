@@ -2,10 +2,52 @@
 
 import { useEffect, useState } from "react"
 import { Trophy, Flame, Activity, ArrowUp, ArrowDown, Star, TrendingUp, X, ShoppingCart, Gavel, Clock, ListPlus, AlertCircle, Info, Menu } from 'lucide-react'
-import RaceViewer3D from "@/components/race-viewer-3d"
+import RaceViewer2D from "@/components/RaceViewer2D"
 import { WalletLoginModal } from "@/components/wallet-login-modal"
-import { WalletProtection } from "@/components/wallet-protection"
 import { useAuth } from "@/lib/auth-context"
+import React from 'react';
+import BettingPage from '@/components/betting-page';
+import AuctionPage from '@/components/auction-page';
+import { io, Socket } from "socket.io-client"
+
+// Config and Interfaces
+const SOCKET_URL = "http://localhost:3001";
+interface Racer {
+  id: number;
+  name: string;
+  distance: number;
+  speed: number;
+  rank: number;
+  lapsCompleted: number;
+  tyreWear: number;
+  state: string;
+  dnf: boolean;
+  finished: boolean;
+  price: number;
+  provisionalPoints: number;
+  bestLapMs: number | null;
+}
+
+interface RaceEvent {
+  type: string;
+  message?: string;
+  track?: string;
+  condition?: string;
+  laps?: number;
+  tick?: number;
+  racerId?: number;
+  lap?: number;
+  lapMs?: number;
+  newLeader?: number;
+  [key: string]: any; // For other event properties
+}
+
+interface RaceConfig {
+  track: string;
+  condition: string;
+  laps: number;
+}
+
 
 export default function Home() {
   const [userWallet, setUserWallet] = useState<string | null>(null)
@@ -17,7 +59,7 @@ export default function Home() {
   useEffect(() => {
     const wallet = localStorage.getItem("userWallet")
     const holder = localStorage.getItem("walletHolder")
-    
+
     if (wallet) {
       setUserWallet(wallet)
       setWalletHolder(holder)
@@ -27,7 +69,7 @@ export default function Home() {
       localStorage.setItem("userWallet", user.address)
       localStorage.setItem("walletHolder", user.name)
     }
-    
+
     setIsReady(true)
   }, [user])
 
@@ -65,6 +107,7 @@ function WalletConnectionScreen() {
   }
 
   return (
+    // ... (WalletConnectionScreen JSX is unchanged)
     <div className="min-h-screen bg-gradient-to-br from-slate-950 via-red-950/20 to-slate-900 text-slate-100 flex items-center justify-center p-4">
       <div className="fixed inset-0 opacity-5 pointer-events-none">
         <div
@@ -82,7 +125,7 @@ function WalletConnectionScreen() {
           <div className="w-16 h-16 bg-gradient-to-br from-red-600 to-amber-500 rounded-2xl flex items-center justify-center font-bold text-3xl text-white shadow-lg shadow-red-500/50 mx-auto mb-6">
             🏎️
           </div>
-          <h1 className="text-3xl sm:text-4xl font-black text-transparent bg-clip-text bg-gradient-to-r from-red-400 to-amber-300 mb-2">
+          <h1 className="text-3xl sm:text-4xl font-black text-transparent bg-clip-text bg-linear-to-r from-red-400 to-amber-300 mb-2">
             TurboTradeX
           </h1>
           <p className="text-red-300 text-sm">Formula 1 × Wall Street × Web3</p>
@@ -118,7 +161,7 @@ function WalletConnectionScreen() {
             <p className="text-sm font-semibold text-amber-300 mb-4">Connection Steps:</p>
             <div className="space-y-3">
               <div className="flex items-start gap-3">
-                <div className="w-7 h-7 rounded-full bg-orange-500/30 border border-orange-500 flex items-center justify-center text-xs font-bold text-orange-300 flex-shrink-0 mt-0.5">
+                <div className="w-7 h-7 rounded-full bg-orange-500/30 border border-orange-500 flex items-center justify-center text-xs font-bold text-orange-300 shrink-0 mt-0.5">
                   1
                 </div>
                 <div>
@@ -127,7 +170,7 @@ function WalletConnectionScreen() {
                 </div>
               </div>
               <div className="flex items-start gap-3">
-                <div className="w-7 h-7 rounded-full bg-orange-500/30 border border-orange-500 flex items-center justify-center text-xs font-bold text-orange-300 flex-shrink-0 mt-0.5">
+                <div className="w-7 h-7 rounded-full bg-orange-500/30 border border-orange-500 flex items-center justify-center text-xs font-bold text-orange-300 shrink-0 mt-0.5">
                   2
                 </div>
                 <div>
@@ -136,7 +179,7 @@ function WalletConnectionScreen() {
                 </div>
               </div>
               <div className="flex items-start gap-3">
-                <div className="w-7 h-7 rounded-full bg-orange-500/30 border border-orange-500 flex items-center justify-center text-xs font-bold text-orange-300 flex-shrink-0 mt-0.5">
+                <div className="w-7 h-7 rounded-full bg-orange-500/30 border border-orange-500 flex items-center justify-center text-xs font-bold text-orange-300 shrink-0 mt-0.5">
                   3
                 </div>
                 <div>
@@ -189,8 +232,9 @@ function WalletConnectionScreen() {
 }
 
 function DashboardPage({ walletAddress, walletHolder, isWalletConnected }: { walletAddress: string | null; walletHolder: string | null; isWalletConnected: boolean }) {
+  // ... (existing states)
   const [selectedRacer, setSelectedRacer] = useState(8)
-  const [activeModal, setActiveModal] = useState(null)
+  const [activeModal, setActiveModal] = useState<string | null>(null)
   const [bidAmount, setBidAmount] = useState("")
   const [listPrice, setListPrice] = useState("")
   const [auctionPrice, setAuctionPrice] = useState("")
@@ -198,20 +242,77 @@ function DashboardPage({ walletAddress, walletHolder, isWalletConnected }: { wal
   const [showDetailsModal, setShowDetailsModal] = useState(false)
   const [showMobileMenu, setShowMobileMenu] = useState(false)
   const [showWalletModal, setShowWalletModal] = useState(false)
+  
+  // --- Live Data States ---
+  const [leaderboard, setLeaderboard] = useState<Racer[]>([]);
+  const [commentary, setCommentary] = useState<RaceEvent[]>([]);
+  const [raceConfig, setRaceConfig] = useState<RaceConfig | null>(null);
+  const [isConnected, setIsConnected] = useState(false);
+  
+  // *** 1. ADD NEW STATE FOR THE CURRENT TICK ***
+  const [currentTick, setCurrentTick] = useState(0);
 
-  const [racePrices, setRacePrices] = useState({
-    8: 3400,
-    12: 4200,
-    3: 2800,
-    15: 3100,
-  })
+  // ... (mock racePrices and positions state)
+  const [racePrices, setRacePrices] = useState({ 8: 3400, 12: 4200, 3: 2800, 15: 3100, })
+  const [positions, setPositions] = useState([ { id: 12, name: "ViperRacer", speed: 312, lapTime: "1:28.4", color: "#dc2626" }, { id: 8, name: "NeonDrift", speed: 308, lapTime: "1:28.7", color: "#f59e0b" }, { id: 3, name: "SteelFalcon", speed: 305, lapTime: "1:29.2", color: "#c0c0c0" }, ])
 
-  const [positions, setPositions] = useState([
-    { id: 12, name: "ViperRacer", speed: 312, lapTime: "1:28.4", color: "#dc2626" },
-    { id: 8, name: "NeonDrift", speed: 308, lapTime: "1:28.7", color: "#f59e0b" },
-    { id: 3, name: "SteelFalcon", speed: 305, lapTime: "1:29.2", color: "#c0c0c0" },
-  ])
+  // --- Socket Connection useEffect ---
+  useEffect(() => {
+    const socket: Socket = io(SOCKET_URL, {
+      transports: ["websocket"],
+    });
 
+    socket.on("connect", () => {
+      console.log("Socket connected!");
+      setIsConnected(true);
+      setCommentary(prev => [{ type: 'local_connect', message: 'Connected to race server.' }, ...prev]);
+    });
+
+    socket.on("disconnect", () => {
+      console.log("Socket disconnected.");
+      setIsConnected(false);
+      setCommentary(prev => [{ type: 'local_disconnect', message: 'Disconnected from race server.' }, ...prev]);
+    });
+
+    // Listen for race start info
+    socket.on("race_event", (event: RaceEvent) => {
+      // *** 2. UPDATE TICK STATE ***
+      if (event.tick) setCurrentTick(event.tick);
+
+      if (event.type === 'race_start') {
+        setRaceConfig({
+          track: event.track || 'Unknown',
+          condition: event.condition || 'Unknown',
+          laps: event.laps || 10,
+        });
+        setCurrentTick(event.tick || 0); // Reset tick on race start
+        setCommentary(prev => [event, ...prev.filter(e => e.type.startsWith('local_'))].slice(0, 50));
+      } else {
+        setCommentary(prev => [event, ...prev].slice(0, 50));
+      }
+    });
+
+    // Listen for live leaderboard updates
+    socket.on("race_update", (data: { racers: Racer[], tick?: number }) => {
+      setLeaderboard(data.racers);
+      // *** 2. UPDATE TICK STATE ***
+      if (data.tick) setCurrentTick(data.tick);
+    });
+
+    // Listen for final results
+    socket.on("race_finished", (data: { racers: Racer[], tick?: number }) => {
+      setLeaderboard(data.racers);
+      // *** 2. UPDATE TICK STATE ***
+      if (data.tick) setCurrentTick(data.tick);
+      setCommentary(prev => [{ type: 'race_end', message: `Race finished! Winner: ${data.racers[0]?.name}` }, ...prev]);
+    });
+
+    return () => {
+      socket.disconnect();
+    };
+  }, []);
+
+  // ... (mock racePrices useEffect)
   useEffect(() => {
     const interval = setInterval(() => {
       setRacePrices((prev) => ({
@@ -225,127 +326,33 @@ function DashboardPage({ walletAddress, walletHolder, isWalletConnected }: { wal
     return () => clearInterval(interval)
   }, [])
 
+  // ... (handleDisconnectWallet function)
   const handleDisconnectWallet = () => {
     localStorage.removeItem("userWallet")
     localStorage.removeItem("walletHolder")
     window.location.reload()
   }
 
-  const racerData = [
-    {
-      id: 8,
-      name: "NeonDrift",
-      helmet: "🟠",
-      speed: 88,
-      grip: 76,
-      aero: 72,
-      price: racePrices[8],
-      change: 7.8,
-      wins: 9,
-      rarity: "Legendary",
-      team: "Ferrari Racing",
-      championships: 3,
-    },
-    {
-      id: 12,
-      name: "ViperRacer",
-      helmet: "🔴",
-      speed: 92,
-      grip: 70,
-      aero: 74,
-      price: racePrices[12],
-      change: 12.3,
-      wins: 12,
-      rarity: "Mythic",
-      team: "Red Velocitas",
-      championships: 5,
-    },
-    {
-      id: 3,
-      name: "SteelFalcon",
-      helmet: "⚪",
-      speed: 85,
-      grip: 82,
-      aero: 88,
-      price: racePrices[3],
-      change: -3.2,
-      wins: 7,
-      rarity: "Epic",
-      team: "Silver Arrow",
-      championships: 2,
-    },
-    {
-      id: 15,
-      name: "PhantomX",
-      helmet: "🟡",
-      speed: 87,
-      grip: 79,
-      aero: 81,
-      price: racePrices[15],
-      change: 5.4,
-      wins: 6,
-      rarity: "Rare",
-      team: "Golden Apex",
-      championships: 1,
-    },
-  ]
-
-  const saleListings = [
-    {
-      id: 101,
-      racer: "NeonDrift #8",
-      seller: "0x7A3B...2C1F",
-      price: 3600,
-      listedAt: "2 hours ago",
-      status: "active",
-      bids: 5,
-    },
-    {
-      id: 102,
-      racer: "ViperRacer #12",
-      seller: "0x9E2D...4K8L",
-      price: 4500,
-      listedAt: "5 hours ago",
-      status: "active",
-      bids: 12,
-    },
-    {
-      id: 103,
-      racer: "SteelFalcon #3",
-      seller: "0x3F6E...9M2P",
-      price: 2900,
-      listedAt: "1 day ago",
-      status: "ending",
-      bids: 3,
-    },
-    {
-      id: 104,
-      racer: "PhantomX #15",
-      seller: "0xB4C9...7R5Q",
-      price: 3250,
-      listedAt: "12 hours ago",
-      status: "active",
-      bids: 8,
-    },
-  ]
-
-  const tradeHistory = [
-    { id: 1, racer: "NeonDrift #8", action: "Sold", price: 3200, date: "2 days ago", buyer: "0x1A2B...3C4D" },
-    { id: 2, racer: "ViperRacer #12", action: "Purchased", price: 3800, date: "1 week ago", buyer: "You" },
-    { id: 3, racer: "SteelFalcon #3", action: "Bid Placed", price: 2700, date: "3 days ago", buyer: "Pending" },
-    { id: 4, racer: "PhantomX #15", action: "Minted", price: 2500, date: "2 weeks ago", buyer: "Genesis" },
-  ]
-
+  // ... (mock racerData, saleListings, tradeHistory)
+  const racerData = [ { id: 8, name: "NeonDrift", helmet: "🟠", speed: 88, grip: 76, aero: 72, price: racePrices[8], change: 7.8, wins: 9, rarity: "Legendary", team: "Ferrari Racing", championships: 3, }, { id: 12, name: "ViperRacer", helmet: "🔴", speed: 92, grip: 70, aero: 74, price: racePrices[12], change: 12.3, wins: 12, rarity: "Mythic", team: "Red Velocitas", championships: 5, }, { id: 3, name: "SteelFalcon", helmet: "⚪", speed: 85, grip: 82, aero: 88, price: racePrices[3], change: -3.2, wins: 7, rarity: "Epic", team: "Silver Arrow", championships: 2, }, { id: 15, name: "PhantomX", helmet: "🟡", speed: 87, grip: 79, aero: 81, price: racePrices[15], change: 5.4, wins: 6, rarity: "Rare", team: "Golden Apex", championships: 1, }, ]
+  const saleListings = [ { id: 101, racer: "NeonDrift #8", seller: "0x7A3B...2C1F", price: 3600, listedAt: "2 hours ago", status: "active", bids: 5, }, { id: 102, racer: "ViperRacer #12", seller: "0x9E2D...4K8L", price: 4500, listedAt: "5 hours ago", status: "active", bids: 12, }, { id: 103, racer: "SteelFalcon #3", seller: "0x3F6E...9M2P", price: 2900, listedAt: "1 day ago", status: "ending", bids: 3, }, { id: 104, racer: "PhantomX #15", seller: "0xB4C9...7R5Q", price: 3250, listedAt: "12 hours ago", status: "active", bids: 8, }, ]
+  const tradeHistory = [ { id: 1, racer: "NeonDrift #8", action: "Sold", price: 3200, date: "2 days ago", buyer: "0x1A2B...3C4D" }, { id: 2, racer: "ViperRacer #12", action: "Purchased", price: 3800, date: "1 week ago", buyer: "You" }, { id: 3, racer: "SteelFalcon #3", action: "Bid Placed", price: 2700, date: "3 days ago", buyer: "Pending" }, { id: 4, racer: "PhantomX #15", action: "Minted", price: 2500, date: "2 weeks ago", buyer: "Genesis" }, ]
+  
   const selectedRacerData = racerData.find((r) => r.id === selectedRacer)
 
+  // ... (renderModalContent function)
   const renderModalContent = () => {
+    if (!selectedRacerData) {
+      return <div>Loading racer data...</div>;
+    }
+
     switch (activeModal) {
       case "buy":
         return (
           <div className="space-y-6">
             <div>
               <h3 className="text-lg sm:text-xl font-bold mb-4 flex items-center gap-2">
-                <ShoppingCart className="w-5 h-5" /> Buy Now — {selectedRacerData?.name}
+                <ShoppingCart className="w-5 h-5" /> Buy Now — {selectedRacerData.name}
               </h3>
               <div className="bg-slate-900/60 p-4 rounded-lg border border-amber-700/50 space-y-3">
                 <div className="flex justify-between text-sm sm:text-base">
@@ -354,7 +361,7 @@ function DashboardPage({ walletAddress, walletHolder, isWalletConnected }: { wal
                 </div>
                 <div className="flex justify-between">
                   <span className="text-slate-400">Current Price</span>
-                  <span className="text-lg font-bold text-amber-300">${selectedRacerData?.price?.toFixed(0)}</span>
+                  <span className="text-lg font-bold text-amber-300">${selectedRacerData.price.toFixed(0)}</span>
                 </div>
                 <div className="flex justify-between text-sm">
                   <span className="text-slate-400">Gas Fee</span>
@@ -363,7 +370,7 @@ function DashboardPage({ walletAddress, walletHolder, isWalletConnected }: { wal
                 <div className="border-t border-amber-700/30 pt-3 flex justify-between">
                   <span className="font-semibold">Total</span>
                   <span className="text-lg font-bold text-amber-400">
-                    ${(Number.parseFloat(selectedRacerData?.price?.toFixed(0)) + 150).toFixed(0)}
+                    ${(Number.parseFloat(selectedRacerData.price.toFixed(0)) + 150).toFixed(0)}
                   </span>
                 </div>
               </div>
@@ -378,12 +385,12 @@ function DashboardPage({ walletAddress, walletHolder, isWalletConnected }: { wal
           <div className="space-y-6">
             <div>
               <h3 className="text-lg sm:text-xl font-bold mb-4 flex items-center gap-2">
-                <Gavel className="w-5 h-5" /> Place Bid — {selectedRacerData?.name}
+                <Gavel className="w-5 h-5" /> Place Bid — {selectedRacerData.name}
               </h3>
               <div className="bg-slate-900/60 p-4 rounded-lg border border-red-700/50 space-y-3 mb-4">
                 <div className="flex justify-between">
                   <span className="text-slate-400">Current Bid</span>
-                  <span className="font-bold text-red-300">${selectedRacerData?.price?.toFixed(0)}</span>
+                  <span className="font-bold text-red-300">${selectedRacerData.price.toFixed(0)}</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-slate-400">Active Bids</span>
@@ -401,7 +408,7 @@ function DashboardPage({ walletAddress, walletHolder, isWalletConnected }: { wal
                     type="number"
                     value={bidAmount}
                     onChange={(e) => setBidAmount(e.target.value)}
-                    placeholder={`Minimum: ${(selectedRacerData?.price * 1.05).toFixed(0)} USDC`}
+                    placeholder={`Minimum: ${(selectedRacerData.price * 1.05).toFixed(0)} USDC`}
                     className="w-full px-4 py-2 bg-slate-900/50 border border-red-600/50 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:border-red-500 text-sm"
                   />
                 </div>
@@ -417,7 +424,7 @@ function DashboardPage({ walletAddress, walletHolder, isWalletConnected }: { wal
           <div className="space-y-6">
             <div>
               <h3 className="text-lg sm:text-xl font-bold mb-4 flex items-center gap-2">
-                <ListPlus className="w-5 h-5" /> List for Sale — {selectedRacerData?.name}
+                <ListPlus className="w-5 h-5" /> List for Sale — {selectedRacerData.name}
               </h3>
               <div className="space-y-4">
                 <div>
@@ -426,10 +433,10 @@ function DashboardPage({ walletAddress, walletHolder, isWalletConnected }: { wal
                     type="number"
                     value={listPrice}
                     onChange={(e) => setListPrice(e.target.value)}
-                    placeholder={selectedRacerData?.price?.toFixed(0)}
+                    placeholder={selectedRacerData.price.toFixed(0)}
                     className="w-full px-4 py-2 mt-1 bg-slate-900/50 border border-amber-600/50 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:border-amber-500 text-sm"
                   />
-                  <p className="text-xs text-slate-400 mt-1">Market price: ${selectedRacerData?.price?.toFixed(0)}</p>
+                  <p className="text-xs text-slate-400 mt-1">Market price: ${selectedRacerData.price.toFixed(0)}</p>
                 </div>
                 <div>
                   <label className="text-xs sm:text-sm font-semibold text-slate-300">Duration</label>
@@ -452,7 +459,7 @@ function DashboardPage({ walletAddress, walletHolder, isWalletConnected }: { wal
           <div className="space-y-6">
             <div>
               <h3 className="text-lg sm:text-xl font-bold mb-4 flex items-center gap-2">
-                <Gavel className="w-5 h-5" /> Create Auction — {selectedRacerData?.name}
+                <Gavel className="w-5 h-5" /> Create Auction — {selectedRacerData.name}
               </h3>
               <div className="space-y-4">
                 <div>
@@ -461,7 +468,7 @@ function DashboardPage({ walletAddress, walletHolder, isWalletConnected }: { wal
                     type="number"
                     value={auctionPrice}
                     onChange={(e) => setAuctionPrice(e.target.value)}
-                    placeholder={Math.floor(selectedRacerData?.price * 0.8).toFixed(0)}
+                    placeholder={Math.floor(selectedRacerData.price * 0.8).toFixed(0)}
                     className="w-full px-4 py-2 mt-1 bg-slate-900/50 border border-red-600/50 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:border-red-500 text-sm"
                   />
                 </div>
@@ -476,7 +483,7 @@ function DashboardPage({ walletAddress, walletHolder, isWalletConnected }: { wal
                   </select>
                 </div>
                 <div className="bg-red-900/20 border border-red-700/50 p-3 rounded-lg flex gap-2">
-                  <AlertCircle className="w-5 h-5 text-red-400 flex-shrink-0 mt-0.5" />
+                  <AlertCircle className="w-5 h-5 text-red-400 shrink-0 mt-0.5" />
                   <p className="text-xs text-red-300">
                     Auction format attracts competitive bidding and yields higher prices.
                   </p>
@@ -504,13 +511,12 @@ function DashboardPage({ walletAddress, walletHolder, isWalletConnected }: { wal
                     <p className="font-semibold text-sm truncate">{trade.racer}</p>
                     <div className="flex items-center gap-2 mt-1 flex-wrap">
                       <span
-                        className={`text-xs px-2 py-0.5 rounded-full whitespace-nowrap ${
-                          trade.action === "Purchased"
-                            ? "bg-green-900/40 text-green-300"
-                            : trade.action === "Sold"
-                              ? "bg-red-900/40 text-red-300"
-                              : "bg-amber-900/40 text-amber-300"
-                        }`}
+                        className={`text-xs px-2 py-0.5 rounded-full whitespace-nowrap ${trade.action === "Purchased"
+                          ? "bg-green-900/40 text-green-300"
+                          : trade.action === "Sold"
+                            ? "bg-red-900/40 text-red-300"
+                            : "bg-amber-900/40 text-amber-300"
+                          }`}
                       >
                         {trade.action}
                       </span>
@@ -531,8 +537,65 @@ function DashboardPage({ walletAddress, walletHolder, isWalletConnected }: { wal
     }
   }
 
+  // *** 3. ADD HELPER FUNCTION TO FORMAT TIME ***
+  const formatTime = (ticks: number) => {
+    // Assuming 1 tick = 1 second (from engine.js TICK_MS = 1000)
+    const totalSeconds = ticks || 0; 
+    const minutes = Math.floor(totalSeconds / 60);
+    const seconds = totalSeconds % 60;
+    return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+  };
+
+  const formatEvent = (event: RaceEvent): string => {
+    const getRacerName = (id?: number) => {
+      if (id === undefined) return 'N/A';
+      const racer = leaderboard.find(r => r.id === id);
+      return racer ? racer.name : `Racer #${id}`;
+    };
+
+    switch (event.type) {
+      case 'local_connect':
+        return `${event.message}`;
+      case 'local_disconnect':
+        return `${event.message}`;
+      case 'race_start':
+        return `Race started: ${event.track} (${event.condition}), ${event.laps} laps`;
+      case 'race_end':
+        return `${event.message || 'Race has ended.'}`;
+      case "lap_complete":
+        return `Lap ${event.lap} for ${getRacerName(event.racerId)} (${((event.lapMs || 0) / 1000).toFixed(2)}s)`;
+      case "lead_change":
+        return ` overtaking ${getRacerName(event.newLeader)} is now P1!`;
+      case 'fastest_lap_new':
+        return `New Fastest Lap by ${getRacerName(event.racerId)}! (${((event.lapMs || 0) / 1000).toFixed(2)}s)`;
+      case 'pit_in':
+        return `PIT: ${getRacerName(event.racerId)} enters the pits.`;
+      case 'pit_out':
+        return `PIT: ${getRacerName(event.racerId)} exits the pits.`;
+      case 'crash_dnf':
+        return `DNF: ${getRacerName(event.racerId)} is out!`;
+      case 'crash_pit':
+        return `CRASH: ${getRacerName(event.racerId)} limps to the pits.`;
+      case 'safety_car':
+        return `SAFETY CAR DEPLOYED (Duration: ${event.duration} ticks)`;
+      case 'safety_car_end':
+        return 'SAFETY CAR ending this lap.';
+      default:
+        return `INFO: ${event.type}`;
+    }
+  };
+
+  const getEventStyle = (type: string) => {
+    if (type.startsWith('crash')) return 'bg-red-900/50 text-red-300';
+    if (type.startsWith('pit')) return 'bg-yellow-900/50 text-yellow-300';
+    if (type.startsWith('safety')) return 'bg-amber-900/50 text-amber-300';
+    if (type.startsWith('lead') || type === 'fastest_lap_new') return 'bg-green-900/50 text-green-300';
+    return 'bg-slate-800/40 border-amber-700/20';
+  };
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-950 via-red-950/20 to-slate-900 text-slate-100">
+      {/* ... (Background grid and Header are unchanged) ... */}
       <div className="fixed inset-0 opacity-5 pointer-events-none">
         <div
           className="absolute inset-0"
@@ -545,364 +608,163 @@ function DashboardPage({ walletAddress, walletHolder, isWalletConnected }: { wal
       </div>
 
       <header className="relative z-20 border-b border-red-900/30 bg-slate-950/60 backdrop-blur-lg">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 py-4 sm:py-5 flex items-center justify-between">
-          <div className="flex items-center gap-2 sm:gap-4">
-            <div className="w-10 h-10 sm:w-12 sm:h-12 bg-gradient-to-br from-red-600 to-amber-500 rounded-xl flex items-center justify-center font-bold text-lg text-white shadow-lg shadow-red-500/50 flex-shrink-0">
-              🏎️
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 py-5 flex items-center justify-between">
+          <div className="flex items-center gap-4">
+            <div className="w-12 h-12 bg-gradient-to-br from-red-600 to-amber-500 rounded-xl flex items-center justify-center font-bold text-lg text-white shadow-lg shadow-red-500/50">
+              T
             </div>
-            <div className="hidden sm:block">
-              <h1 className="text-xl sm:text-2xl font-black text-transparent bg-clip-text bg-gradient-to-r from-red-400 to-amber-300">
+            <div>
+              <h1 className="text-2xl font-black text-transparent bg-clip-text bg-linear-to-r from-red-400 to-amber-300">
                 TurboTradeX
               </h1>
               <p className="text-xs text-red-300">Formula 1 × Wall Street × Web3</p>
             </div>
-            <div className="sm:hidden">
-              <h1 className="text-lg font-black text-transparent bg-clip-text bg-gradient-to-r from-red-400 to-amber-300">
-                TTX
-              </h1>
-            </div>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-3">
             <button
-              onClick={() => setShowMobileMenu(!showMobileMenu)}
-              className="sm:hidden p-2 hover:bg-slate-800 rounded-lg transition-all"
-            >
-              <Menu className="w-5 h-5" />
-            </button>
-            <button 
               onClick={() => setShowWalletModal(true)}
-              className="hidden sm:flex px-3 sm:px-4 py-2 bg-slate-800/50 border border-red-700/50 rounded-lg text-xs sm:text-sm hover:border-red-600 transition-all active:scale-95 items-center gap-2"
+              className="hidden sm:flex px-4 py-2 bg-slate-800/50 border border-red-700/50 rounded-lg text-xs hover:border-red-600 transition-all active:scale-95 items-center gap-2"
             >
-              <span>🔗</span>
-              <div className="text-left">
-                <div className="text-xs opacity-70">{walletHolder}</div>
-                <div className="text-xs font-mono">{walletAddress}</div>
+              <span className="text-slate-300">Wallet</span>
+              <div className="text-right">
+                <div className="text-xs text-amber-400 font-mono">{walletAddress?.slice(0, 10)}...</div>
               </div>
-            </button>
-            <button
-              onClick={() => {
-                alert(`🏁 New racer minted successfully! Starting bid: $2,500`)
-                setSelectedRacer(15)
-              }}
-              className="px-3 sm:px-4 py-2 bg-gradient-to-r from-red-600 to-amber-500 rounded-lg text-xs sm:text-sm font-semibold hover:shadow-lg hover:shadow-red-500/50 transition-all active:scale-95"
-            >
-              🏁 Mint
             </button>
           </div>
         </div>
-
-        {showMobileMenu && (
-          <div className="sm:hidden border-t border-red-900/30 bg-slate-900/80 backdrop-blur p-4 space-y-2">
-            <button 
-              onClick={() => {
-                setShowWalletModal(true)
-                setShowMobileMenu(false)
-              }}
-              className="w-full px-4 py-2 bg-slate-800/50 border border-red-700/50 rounded-lg text-sm hover:border-red-600 transition-all active:scale-95 text-left space-y-1"
-            >
-              <div className="text-xs opacity-70">{walletHolder}</div>
-              <div className="text-xs font-mono">{walletAddress}</div>
-            </button>
-            <button className="w-full px-4 py-2 bg-slate-800/50 border border-slate-600/50 rounded-lg text-sm hover:border-slate-500 transition-all active:scale-95 text-left">
-              📊 Dashboard
-            </button>
-          </div>
-        )}
       </header>
 
-      <main className="relative z-10 max-w-7xl mx-auto px-4 sm:px-6 py-6 sm:py-8">
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 sm:gap-6">
-          <div className="lg:col-span-8 space-y-4 sm:space-y-6">
-            <div className="group relative bg-gradient-to-b from-red-900/20 to-slate-900/20 rounded-2xl border border-red-700/30 overflow-hidden">
-              <div className="absolute inset-0 bg-gradient-to-r from-red-600/10 to-amber-500/10 opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
+      {/* Main Content */}
+      <main className="relative z-10 max-w-7xl mx-auto px-4 sm:px-6 py-8 space-y-8">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          {/* Live Race Card */}
+          <div className="lg:col-span-2 group relative bg-gradient-to-b from-red-900/20 to-slate-900/20 rounded-2xl border border-red-700/30 overflow-hidden">
+            <div className="absolute inset-0 bg-gradient-to-r from-red-600/10 to-amber-500/10 opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
 
-              <div className="relative p-4 sm:p-6 space-y-4">
-                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 sm:gap-4">
-                  <div>
-                    <h2 className="text-lg sm:text-2xl font-black text-transparent bg-clip-text bg-gradient-to-r from-red-400 to-amber-300 flex items-center gap-2">
-                      <Flame className="w-5 h-5 sm:w-6 sm:h-6 text-red-500 flex-shrink-0" /> Live Race
-                    </h2>
-                    <p className="text-xs sm:text-sm text-red-300 mt-1">Race #42 • Lap 32/50 • 🔴 LIVE</p>
-                  </div>
-                  <div className="text-right">
-                    <div className="text-2xl sm:text-3xl font-black text-amber-400">45m 23s</div>
-                    <p className="text-xs text-red-300">Elapsed</p>
-                  </div>
-                </div>
-
-                <RaceViewer3D />
-
-                <div className="bg-gradient-to-r from-slate-800/50 to-red-900/30 p-3 sm:p-4 rounded-xl border border-red-700/30">
-                  <div className="flex items-center gap-3 justify-between">
-                    <div className="flex items-center gap-3 min-w-0">
-                      <Trophy className="w-4 h-4 sm:w-5 sm:h-5 text-amber-400 flex-shrink-0" />
-                      <div className="flex items-center gap-2 min-w-0">
-                        <span className="text-2xl sm:text-3xl flex-shrink-0">
-                          {racerData.find((r) => r.id === positions[0].id)?.helmet}
-                        </span>
-                        <div className="min-w-0">
-                          <p className="text-xs text-slate-400">Leading</p>
-                          <p className="text-sm sm:text-lg font-bold text-amber-300 truncate">{positions[0].name}</p>
-                        </div>
-                      </div>
-                    </div>
-                    <div className="text-right flex-shrink-0">
-                      <div className="flex items-center gap-1 text-red-400 text-sm sm:text-base">
-                        <ArrowUp className="w-3 h-3 sm:w-4 sm:h-4" />
-                        <span className="font-bold">{positions[0].speed}</span>
-                      </div>
-                      <p className="text-xs text-slate-400">{positions[0].lapTime}</p>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-3 gap-2 sm:gap-3">
-                  <div className="bg-slate-800/40 p-3 sm:p-4 rounded-lg border border-red-700/20 hover:border-red-600/50 transition-all">
-                    <p className="text-xs text-slate-400 mb-1">⚡ RPM</p>
-                    <p className="text-xl sm:text-2xl font-bold text-red-300">12,300</p>
-                    <p className="text-xs text-red-400 mt-1">+450</p>
-                  </div>
-                  <div className="bg-slate-800/40 p-3 sm:p-4 rounded-lg border border-amber-700/20 hover:border-amber-600/50 transition-all">
-                    <p className="text-xs text-slate-400 mb-1">🌡️ Tire</p>
-                    <p className="text-xl sm:text-2xl font-bold text-amber-300">87°C</p>
-                    <p className="text-xs text-amber-400 mt-1">Optimal</p>
-                  </div>
-                  <div className="bg-slate-800/40 p-3 sm:p-4 rounded-lg border border-yellow-700/20 hover:border-yellow-600/50 transition-all">
-                    <p className="text-xs text-slate-400 mb-1">🎯 G-Force</p>
-                    <p className="text-xl sm:text-2xl font-bold text-yellow-300">1.87G</p>
-                    <p className="text-xs text-yellow-400 mt-1">Corner 3</p>
-                  </div>
-                </div>
-
-                <div className="bg-slate-900/40 p-3 sm:p-4 rounded-xl border border-red-700/20">
-                  <p className="text-xs sm:text-sm font-semibold text-red-300 mb-3 flex items-center gap-2">
-                    <Activity className="w-4 h-4" /> Leaderboard
+            <div className="relative p-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h2 className="text-2xl font-black text-transparent bg-clip-text bg-linear-to-r from-red-400 to-amber-300 flex items-center gap-3">
+                    <span className={`w-3 h-3 rounded-full ${isConnected ? 'bg-red-500 animate-pulse' : 'bg-slate-600'}`}></span> Live Race
+                  </h2>
+                  <p className="text-sm text-red-300 mt-2">
+                    {raceConfig ? `${raceConfig.track.toUpperCase()} (${raceConfig.condition}) • Lap ${leaderboard[0]?.lapsCompleted || 0}/${raceConfig.laps}` : (isConnected ? 'Waiting for race...' : 'Disconnected')}
                   </p>
-                  <div className="space-y-2">
-                    {positions.map((pos, idx) => (
-                      <div
-                        key={pos.id}
-                        className="flex items-center justify-between bg-slate-800/30 p-2 rounded-lg border border-slate-700/30 hover:border-red-600/50 transition-all text-sm"
-                      >
-                        <div className="flex items-center gap-2 min-w-0">
-                          <span className="font-bold w-5 text-amber-400 flex-shrink-0">{idx + 1}</span>
-                          <span className="text-2xl flex-shrink-0">
-                            {racerData.find((r) => r.id === pos.id)?.helmet}
-                          </span>
-                          <div className="min-w-0">
-                            <p className="font-semibold text-xs sm:text-sm truncate">{pos.name}</p>
-                            <p className="text-xs text-slate-500">{pos.lapTime}</p>
-                          </div>
-                        </div>
-                        <div className="text-right flex-shrink-0">
-                          <span className="font-bold text-red-400 text-xs sm:text-sm">{pos.speed}</span>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
+                </div>
+                <div className="text-right">
+                  {/* *** 4. UPDATE JSX TO USE DYNAMIC TIME *** */}
+                  <div className="text-3xl font-black text-amber-400">{formatTime(currentTick)}</div>
+                  <p className="text-xs text-red-300">Elapsed</p>
                 </div>
               </div>
+
+              <RaceViewer2D leaderboard={leaderboard} raceConfig={raceConfig} />
             </div>
           </div>
 
-          <div className="lg:col-span-4 space-y-4 sm:space-y-6">
-            <div className="bg-gradient-to-br from-red-900/40 to-slate-900/40 rounded-2xl border border-red-700/40 overflow-hidden hover:border-red-600/60 transition-all group">
-              <div className="relative h-32 sm:h-40 bg-gradient-to-br from-red-600 to-amber-500 overflow-hidden flex items-center justify-center">
-                <div className="text-5xl sm:text-6xl">{selectedRacerData?.helmet}</div>
+          {/* Live Commentary Card */}
+          <div className="group relative bg-gradient-to-b from-amber-900/20 to-slate-900/20 rounded-2xl border border-amber-700/30 overflow-hidden">
+            <div className="absolute inset-0 bg-gradient-to-r from-amber-600/10 to-red-500/10 opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
+
+            <div className="relative p-6 space-y-4">
+              <div className="flex items-center justify-between">
+                <h2 className="text-xl font-black text-transparent bg-clip-text bg-linear-to-r from-amber-400 to-red-300">Live Commentary</h2>
+                <div className={`w-2 h-2 rounded-full ${isConnected ? 'bg-red-500 animate-pulse' : 'bg-slate-600'}`}></div>
               </div>
 
-              <div className="p-4 sm:p-5 space-y-4">
-                <div>
-                  <div className="flex items-center justify-between mb-2 gap-2">
-                    <h3 className="font-bold text-sm sm:text-lg truncate">{selectedRacerData?.name}</h3>
-                    <span className="px-2 py-1 bg-red-600/40 border border-red-500 rounded text-xs font-semibold text-red-300 flex-shrink-0">
-                      {selectedRacerData?.rarity}
-                    </span>
+              <div className="space-y-3 max-h-130 overflow-y-auto pr-2 scrollbar-thin scrollbar-thumb-red-600 scrollbar-track-slate-800">
+                {commentary.length === 0 && (
+                  <div className="bg-slate-800/40 p-3 rounded-lg border border-amber-700/20">
+                    <p className="text-sm text-slate-400 text-center">Waiting for race events...</p>
                   </div>
-                  <p className="text-xs text-slate-400 truncate">{selectedRacerData?.team}</p>
-                </div>
-
-                <div className="grid grid-cols-3 gap-2">
-                  <div className="bg-slate-800/50 p-2 rounded-lg text-center">
-                    <p className="text-xs text-slate-400">Speed</p>
-                    <p className="font-bold text-red-300 text-sm">{selectedRacerData?.speed}</p>
+                )}
+                {commentary.map((event, index) => (
+                  <div key={index} className={`p-3 rounded-lg border ${getEventStyle(event.type)}`}>
+                    <p className="text-sm">{formatEvent(event)}</p>
                   </div>
-                  <div className="bg-slate-800/50 p-2 rounded-lg text-center">
-                    <p className="text-xs text-slate-400">Grip</p>
-                    <p className="font-bold text-amber-300 text-sm">{selectedRacerData?.grip}</p>
-                  </div>
-                  <div className="bg-slate-800/50 p-2 rounded-lg text-center">
-                    <p className="text-xs text-slate-400">Aero</p>
-                    <p className="font-bold text-yellow-300 text-sm">{selectedRacerData?.aero}</p>
-                  </div>
-                </div>
-
-                <div className="bg-gradient-to-r from-slate-900/50 to-red-900/30 p-3 rounded-lg border border-red-700/30">
-                  <p className="text-xs text-slate-400 mb-1">Floor Price</p>
-                  <div className="flex items-baseline gap-2">
-                    <span className="text-xl sm:text-2xl font-black text-amber-400">
-                      ${selectedRacerData?.price?.toFixed(0)}
-                    </span>
-                    <span
-                      className={`font-semibold text-xs ${selectedRacerData?.change > 0 ? "text-green-400" : "text-red-400"}`}
-                    >
-                      {selectedRacerData?.change > 0 ? "+" : ""}
-                      {selectedRacerData?.change?.toFixed(1)}%
-                    </span>
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-2 gap-2">
-                  <button
-                    onClick={() => setActiveModal("buy")}
-                    className="px-4 py-2 bg-gradient-to-r from-amber-600 to-amber-500 rounded-lg font-semibold text-white text-xs sm:text-sm hover:shadow-lg hover:shadow-amber-500/50 transition-all active:scale-95"
-                  >
-                    🛒 Buy Now
-                  </button>
-                  <button
-                    onClick={() => setShowDetailsModal(!showDetailsModal)}
-                    className="px-4 py-2 bg-slate-800/50 border border-red-700/50 rounded-lg text-xs sm:text-sm font-semibold hover:border-red-600 transition-all active:scale-95"
-                  >
-                    ℹ️ Details
-                  </button>
-                </div>
-              </div>
-            </div>
-
-            <div className="bg-gradient-to-b from-red-900/20 to-slate-900/20 rounded-2xl border border-red-700/30 p-4 sm:p-5 space-y-3 sm:space-y-4">
-              <h3 className="font-bold text-sm sm:text-lg flex items-center gap-2 text-amber-300">
-                <Star className="w-4 h-4 sm:w-5 sm:h-5" /> Available Racers
-              </h3>
-              <div className="grid grid-cols-2 gap-2 sm:gap-3">
-                {racerData.map((racer) => (
-                  <button
-                    key={racer.id}
-                    onClick={() => setSelectedRacer(racer.id)}
-                    className={`p-3 rounded-lg border-2 transition-all text-left ${
-                      selectedRacer === racer.id
-                        ? "border-amber-500 bg-amber-600/20"
-                        : "border-red-700/30 bg-slate-800/30 hover:border-red-600/60"
-                    }`}
-                  >
-                    <div className="text-2xl sm:text-3xl mb-1">{racer.helmet}</div>
-                    <p className="font-semibold text-xs sm:text-sm truncate">{racer.name}</p>
-                    <p className="text-xs text-amber-400 font-bold">${racer.price.toFixed(0)}</p>
-                  </button>
                 ))}
               </div>
             </div>
-
-            <div className="bg-gradient-to-b from-red-900/20 to-slate-900/20 rounded-2xl border border-red-700/30 p-4 sm:p-5 space-y-2 sm:space-y-3">
-              <h3 className="font-bold text-sm sm:text-lg text-amber-300 mb-3">Quick Actions</h3>
-              <button
-                onClick={() => setActiveModal("bid")}
-                className="w-full px-4 py-2 bg-slate-800/50 border border-red-700/50 rounded-lg text-xs sm:text-sm font-semibold hover:border-red-600 transition-all active:scale-95"
-              >
-                🏆 Place Bid
-              </button>
-              <button
-                onClick={() => setActiveModal("list")}
-                className="w-full px-4 py-2 bg-slate-800/50 border border-red-700/50 rounded-lg text-xs sm:text-sm font-semibold hover:border-red-600 transition-all active:scale-95"
-              >
-                📋 List for Sale
-              </button>
-              <button
-                onClick={() => setActiveModal("auction")}
-                className="w-full px-4 py-2 bg-slate-800/50 border border-red-700/50 rounded-lg text-xs sm:text-sm font-semibold hover:border-red-600 transition-all active:scale-95"
-              >
-                🎯 Create Auction
-              </button>
-              <button
-                onClick={() => setActiveModal("history")}
-                className="w-full px-4 py-2 bg-slate-800/50 border border-red-700/50 rounded-lg text-xs sm:text-sm font-semibold hover:border-red-600 transition-all active:scale-95"
-              >
-                📊 View History
-              </button>
-            </div>
           </div>
         </div>
 
-        <div className="mt-6 sm:mt-8">
-          <div className="bg-gradient-to-b from-red-900/20 to-slate-900/20 rounded-2xl border border-red-700/30 p-4 sm:p-6 space-y-4">
-            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2">
-              <h3 className="font-bold text-lg sm:text-xl flex items-center gap-2">
-                <TrendingUp className="w-5 h-5 sm:w-6 sm:h-6 text-red-500" /> Active Listings
-              </h3>
-              <select
-                value={saleFilter}
-                onChange={(e) => setSaleFilter(e.target.value)}
-                className="px-3 sm:px-4 py-2 bg-slate-800/50 border border-red-700/50 rounded-lg text-xs sm:text-sm hover:border-red-600 transition-all"
-              >
-                <option value="all">All Listings</option>
-                <option value="ending">Ending Soon</option>
-                <option value="new">New</option>
-              </select>
-            </div>
+        {/* Leaderboard Section */}
+        <div className="group relative bg-gradient-to-b from-red-900/20 to-slate-900/20 rounded-2xl border border-red-700/30 overflow-hidden">
+          <div className="absolute inset-0 bg-gradient-to-r from-red-600/10 to-amber-500/10 opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
-              {saleListings.map((listing) => (
+          <div className="relative p-6 space-y-5">
+            <h2 className="text-2xl font-black text-transparent bg-clip-text bg-linear-to-r from-red-400 to-amber-300">Leaderboard</h2>
+
+            <div className="space-y-2 max-h-96 overflow-y-auto pr-2">
+              {leaderboard.length === 0 && (
+                <div className="flex items-center gap-4 p-3 bg-slate-800/30 rounded-lg border border-slate-700/30">
+                  <p className="text-sm text-slate-400 text-center w-full">Waiting for race data...</p>
+                </div>
+              )}
+              {leaderboard.map((racer) => (
                 <div
-                  key={listing.id}
-                  className="bg-slate-800/30 border border-red-700/30 rounded-xl p-3 sm:p-4 hover:border-red-600/60 transition-all group"
+                  key={racer.id}
+                  className={`flex items-center gap-4 p-3 rounded-lg border transition-all ${racer.rank === 1 ? 'bg-red-800/50 border-red-600' : 'bg-slate-800/30 border-slate-700/30 hover:bg-slate-800/50 hover:border-red-700/50'}`}
                 >
-                  <div className="flex items-start justify-between mb-2 gap-2">
-                    <div className="flex-1 min-w-0">
-                      <h4 className="font-bold text-xs sm:text-sm truncate">{listing.racer}</h4>
-                      <p className="text-xs text-slate-500 truncate">{listing.seller}</p>
-                    </div>
-                    <span
-                      className={`text-xs px-2 py-1 rounded whitespace-nowrap flex-shrink-0 ${
-                        listing.status === "ending"
-                          ? "bg-red-900/40 text-red-300"
-                          : "bg-green-900/40 text-green-300"
-                      }`}
-                    >
-                      {listing.status === "ending" ? "🔥 Ending" : "✓ Active"}
-                    </span>
+                  <div className="w-7 h-7 rounded-md bg-gradient-to-br from-red-600 to-amber-500 flex items-center justify-center text-white font-bold text-xs shrink-0">
+                    {racer.rank}
                   </div>
-                  <div className="bg-gradient-to-r from-slate-900/50 to-red-900/30 p-2 rounded-lg mb-2 border border-red-700/20">
-                    <p className="text-xs text-slate-400">Price</p>
-                    <p className="font-bold text-amber-300">${listing.price}</p>
+                  <div className="flex-1 min-w-0">
+                    <p className="font-semibold text-white text-sm truncate">{racer.name}</p>
+                    <p className="text-xs text-slate-500">Lap {racer.lapsCompleted}/{raceConfig?.laps || '10'}</p>
                   </div>
-                  <p className="text-xs text-slate-400 mb-3">
-                    {listing.bids} {"bid" + (listing.bids !== 1 ? "s" : "")}
-                  </p>
-                  <button className="w-full px-3 py-1.5 bg-gradient-to-r from-red-600 to-amber-500 rounded-lg text-xs font-semibold text-white hover:shadow-lg hover:shadow-red-500/50 transition-all active:scale-95">
-                    Place Bid
-                  </button>
+                  <div className="hidden sm:block text-right shrink-0">
+                    <div className="text-amber-300 text-sm font-semibold">{racer.finished || racer.dnf ? '---' : `${racer.speed} km/h`}</div>
+                    <p className="text-xs text-slate-500">{racer.bestLapMs ? `${(racer.bestLapMs / 1000).toFixed(2)}s` : 'No Lap'}</p>
+                  </div>
+                  <div className="text-right shrink-0">
+                    <p className={`text-sm font-semibold ${racer.rank === 1 ? 'text-red-400' : (racer.dnf ? 'text-red-500' : 'text-slate-500')}`}>
+                      {racer.state === 'dnf' ? 'DNF' : racer.finished ? 'Finished' : (racer.state.includes('pit') ? 'In Pit' : 'On Track')}
+                    </p>
+                  </div>
                 </div>
               ))}
             </div>
           </div>
         </div>
+
+        {/* Betting and Auction Sections */}
+        <BettingPage racers={leaderboard} raceConfig={raceConfig} />
+
+        <AuctionPage />
       </main>
 
+      {/* ... (All Modals are unchanged) ... */}
       {activeModal && (
-        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4 sm:p-0">
+        <div className="fixed inset-0 z-40 flex items-end sm:items-center justify-center p-4 sm:p-0">
           <div
             className="absolute inset-0 bg-black/60 backdrop-blur-sm"
             onClick={() => setActiveModal(null)}
           />
-          <div className="relative bg-gradient-to-b from-slate-900 to-slate-950 rounded-t-3xl sm:rounded-2xl border border-red-700/30 w-full sm:w-full sm:max-w-md max-h-[85vh] overflow-y-auto shadow-2xl">
+          <div className="relative bg-gradient-to-b from-slate-900 to-slate-950 rounded-t-3xl sm:rounded-2xl border border-red-700/30 w-full sm:w-full sm:max-w-md shadow-2xl overflow-hidden max-h-[90vh] overflow-y-auto">
             <button
               onClick={() => setActiveModal(null)}
               className="absolute top-4 right-4 p-2 hover:bg-slate-800 rounded-lg transition-all z-10"
             >
               <X className="w-5 h-5" />
             </button>
-            <div className="p-4 sm:p-6">{renderModalContent()}</div>
+            <div className="p-4 sm:p-6 space-y-6">
+              <div>
+                {renderModalContent()}
+              </div>
+            </div>
           </div>
         </div>
       )}
 
       {showDetailsModal && selectedRacerData && (
-        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4 sm:p-0">
+        <div className="fixed inset-0 z-40 flex items-end sm:items-center justify-center p-4 sm:p-0">
           <div
             className="absolute inset-0 bg-black/60 backdrop-blur-sm"
             onClick={() => setShowDetailsModal(false)}
           />
-          <div className="relative bg-gradient-to-b from-slate-900 to-slate-950 rounded-t-3xl sm:rounded-2xl border border-red-700/30 w-full sm:w-full sm:max-w-md max-h-[85vh] overflow-y-auto shadow-2xl">
+          <div className="relative bg-gradient-to-b from-slate-900 to-slate-950 rounded-t-3xl sm:rounded-2xl border border-red-700/30 w-full sm:w-full sm:max-w-md shadow-2xl overflow-hidden max-h-[90vh] overflow-y-auto">
             <button
               onClick={() => setShowDetailsModal(false)}
               className="absolute top-4 right-4 p-2 hover:bg-slate-800 rounded-lg transition-all z-10"
@@ -911,14 +773,12 @@ function DashboardPage({ walletAddress, walletHolder, isWalletConnected }: { wal
             </button>
             <div className="p-4 sm:p-6 space-y-6">
               <div>
-                <h3 className="text-lg sm:text-xl font-bold mb-4 flex items-center gap-2">
-                  <Info className="w-5 h-5" /> Racer Details
-                </h3>
+                <h3 className="text-lg sm:text-xl font-bold mb-4">Racer Details</h3>
                 <div className="space-y-4">
                   <div className="bg-slate-800/50 p-4 rounded-lg text-center">
-                    <p className="text-5xl mb-2">{selectedRacerData.helmet}</p>
+                    <p className="text-5xl font-bold text-red-400 opacity-50 mb-2">{selectedRacerData.name.charAt(0)}</p>
                     <h2 className="text-xl font-bold">{selectedRacerData.name}</h2>
-                    <p className="text-xs text-slate-400 mt-1">{selectedRacerData.team}</p>
+                    <p className="text-sm text-slate-400">{selectedRacerData.team}</p>
                   </div>
                   <div className="grid grid-cols-2 gap-3">
                     <div className="bg-slate-800/50 p-3 rounded-lg">
@@ -969,7 +829,7 @@ function DashboardPage({ walletAddress, walletHolder, isWalletConnected }: { wal
             <div className="p-4 sm:p-6 space-y-6">
               <div className="text-center space-y-4">
                 <div className="w-20 h-20 bg-gradient-to-br from-orange-500/30 to-orange-600/30 border-2 border-orange-500/50 rounded-2xl flex items-center justify-center mx-auto shadow-lg shadow-orange-500/20">
-                  <div className="text-4xl">🦊</div>
+                  <div className="text-2xl font-bold text-orange-500">M</div>
                 </div>
                 <div>
                   <h2 className="text-2xl sm:text-3xl font-black text-white mb-2">MetaMask Connected</h2>
@@ -994,19 +854,19 @@ function DashboardPage({ walletAddress, walletHolder, isWalletConnected }: { wal
                 <p className="text-xs font-semibold text-amber-300 uppercase tracking-wider">Connected Features</p>
                 <div className="grid grid-cols-2 gap-2">
                   <div className="bg-slate-800/40 p-3 rounded-lg border border-slate-700/30 text-center">
-                    <p className="text-xl mb-1">💰</p>
+                    <p className="text-2xl font-bold text-amber-400 mb-1">T</p>
                     <p className="text-xs font-semibold text-slate-300">Trading</p>
                   </div>
                   <div className="bg-slate-800/40 p-3 rounded-lg border border-slate-700/30 text-center">
-                    <p className="text-xl mb-1">📊</p>
+                    <p className="text-2xl font-bold text-amber-400 mb-1">P</p>
                     <p className="text-xs font-semibold text-slate-300">Portfolio</p>
                   </div>
                   <div className="bg-slate-800/40 p-3 rounded-lg border border-slate-700/30 text-center">
-                    <p className="text-xl mb-1">🏆</p>
+                    <p className="text-2xl font-bold text-amber-400 mb-1">B</p>
                     <p className="text-xs font-semibold text-slate-300">Bidding</p>
                   </div>
                   <div className="bg-slate-800/40 p-3 rounded-lg border border-slate-700/30 text-center">
-                    <p className="text-xl mb-1">⚡</p>
+                    <p className="text-2xl font-bold text-amber-400 mb-1">W</p>
                     <p className="text-xs font-semibold text-slate-300">Web3</p>
                   </div>
                 </div>
@@ -1016,12 +876,12 @@ function DashboardPage({ walletAddress, walletHolder, isWalletConnected }: { wal
                 onClick={handleDisconnectWallet}
                 className="w-full py-3 bg-red-900/40 border border-red-700/50 rounded-lg font-semibold text-red-300 hover:bg-red-900/60 transition-all active:scale-95"
               >
-                🔌 Disconnect Wallet
+                Disconnect Wallet
               </button>
 
               <div className="bg-slate-800/20 p-3 rounded-lg border border-slate-700/20 text-center">
                 <p className="text-xs text-slate-500">
-                  🔒 Your keys are safe. This connection is view-only and never stores your private keys.
+                  Your keys are safe. This connection is view-only and never stores your private keys.
                 </p>
               </div>
             </div>
