@@ -488,6 +488,7 @@ export async function startRace(io, contract, opts = {}) {
                 });
 
                 io.emit('race_event', { type: 'race_end', tick });
+                resolve();
                 return;
             }
 

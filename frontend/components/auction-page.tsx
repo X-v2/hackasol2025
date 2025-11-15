@@ -444,9 +444,11 @@ function ConfirmationModal({ action, racer, price, onConfirm, onCancel }: Confir
 // --- MOCK DATA (REMOVED MOCK RACERS) ---
 // We keep mockAuctions as a default for the UI
 const mockAuctions: AuctionItem[] = [
-  { id: 1, name: 'Crimson Comet', helmet: '🔴', currentBid: 2.12, timeLeftMs: 7200000, listedByMe: false },
-  { id: 2, name: 'Golden Arrow', helmet: '🟡', currentBid: 3.41, timeLeftMs: 300000, listedByMe: false },
-  { id: 3, name: 'Azure Knight', helmet: '🔵', currentBid: 2.84, timeLeftMs: 600000, listedByMe: false },
+  { id: 1, name: 'Max Verstappen', helmet: '🔴', currentBid: 2.12, timeLeftMs: 7200000, listedByMe: false },
+  { id: 2, name: 'Charles Leclerc', helmet: '🟡', currentBid: 3.41, timeLeftMs: 300000, listedByMe: false },
+  { id: 3, name: 'Lando Norris', helmet: '🔵', currentBid: 2.84, timeLeftMs: 600000, listedByMe: false },
+  { id: 4, name: 'Lewis Hamilton', helmet: '⚫', currentBid: 4.20, timeLeftMs: 4500000, listedByMe: false },
+  { id: 5, name: 'George Russell', helmet: '⚪', currentBid: 2.95, timeLeftMs: 1200000, listedByMe: false },
 ]
 
 const formatTime = (ms: number) => {

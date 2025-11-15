@@ -107,8 +107,8 @@ function WalletConnectionScreen() {
   }
 
   return (
-    // ... (WalletConnectionScreen JSX is unchanged)
     <div className="min-h-screen bg-gradient-to-br from-slate-950 via-red-950/20 to-slate-900 text-slate-100 flex items-center justify-center p-4">
+      {/* ... (Rest of WalletConnectionScreen JSX is unchanged) ... */}
       <div className="fixed inset-0 opacity-5 pointer-events-none">
         <div
           className="absolute inset-0"
@@ -248,8 +248,6 @@ function DashboardPage({ walletAddress, walletHolder, isWalletConnected }: { wal
   const [commentary, setCommentary] = useState<RaceEvent[]>([]);
   const [raceConfig, setRaceConfig] = useState<RaceConfig | null>(null);
   const [isConnected, setIsConnected] = useState(false);
-  
-  // *** 1. ADD NEW STATE FOR THE CURRENT TICK ***
   const [currentTick, setCurrentTick] = useState(0);
 
   // ... (mock racePrices and positions state)
@@ -276,9 +274,7 @@ function DashboardPage({ walletAddress, walletHolder, isWalletConnected }: { wal
 
     // Listen for race start info
     socket.on("race_event", (event: RaceEvent) => {
-      // *** 2. UPDATE TICK STATE ***
       if (event.tick) setCurrentTick(event.tick);
-
       if (event.type === 'race_start') {
         setRaceConfig({
           track: event.track || 'Unknown',
@@ -295,14 +291,12 @@ function DashboardPage({ walletAddress, walletHolder, isWalletConnected }: { wal
     // Listen for live leaderboard updates
     socket.on("race_update", (data: { racers: Racer[], tick?: number }) => {
       setLeaderboard(data.racers);
-      // *** 2. UPDATE TICK STATE ***
       if (data.tick) setCurrentTick(data.tick);
     });
 
     // Listen for final results
     socket.on("race_finished", (data: { racers: Racer[], tick?: number }) => {
       setLeaderboard(data.racers);
-      // *** 2. UPDATE TICK STATE ***
       if (data.tick) setCurrentTick(data.tick);
       setCommentary(prev => [{ type: 'race_end', message: `Race finished! Winner: ${data.racers[0]?.name}` }, ...prev]);
     });
@@ -340,7 +334,7 @@ function DashboardPage({ walletAddress, walletHolder, isWalletConnected }: { wal
   
   const selectedRacerData = racerData.find((r) => r.id === selectedRacer)
 
-  // ... (renderModalContent function)
+  // ... (renderModalContent function is unchanged)
   const renderModalContent = () => {
     if (!selectedRacerData) {
       return <div>Loading racer data...</div>;
@@ -537,15 +531,14 @@ function DashboardPage({ walletAddress, walletHolder, isWalletConnected }: { wal
     }
   }
 
-  // *** 3. ADD HELPER FUNCTION TO FORMAT TIME ***
   const formatTime = (ticks: number) => {
-    // Assuming 1 tick = 1 second (from engine.js TICK_MS = 1000)
     const totalSeconds = ticks || 0; 
     const minutes = Math.floor(totalSeconds / 60);
     const seconds = totalSeconds % 60;
     return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
   };
 
+  // --- UPDATED: Emojis removed ---
   const formatEvent = (event: RaceEvent): string => {
     const getRacerName = (id?: number) => {
       if (id === undefined) return 'N/A';
@@ -565,7 +558,7 @@ function DashboardPage({ walletAddress, walletHolder, isWalletConnected }: { wal
       case "lap_complete":
         return `Lap ${event.lap} for ${getRacerName(event.racerId)} (${((event.lapMs || 0) / 1000).toFixed(2)}s)`;
       case "lead_change":
-        return ` overtaking ${getRacerName(event.newLeader)} is now P1!`;
+        return `Lead change: ${getRacerName(event.newLeader)} is now P1!`;
       case 'fastest_lap_new':
         return `New Fastest Lap by ${getRacerName(event.racerId)}! (${((event.lapMs || 0) / 1000).toFixed(2)}s)`;
       case 'pit_in':
@@ -586,12 +579,35 @@ function DashboardPage({ walletAddress, walletHolder, isWalletConnected }: { wal
   };
 
   const getEventStyle = (type: string) => {
-    if (type.startsWith('crash')) return 'bg-red-900/50 text-red-300';
+    if (type.startsWith('crash') || type === 'local_disconnect') return 'bg-red-900/50 text-red-300';
     if (type.startsWith('pit')) return 'bg-yellow-900/50 text-yellow-300';
     if (type.startsWith('safety')) return 'bg-amber-900/50 text-amber-300';
-    if (type.startsWith('lead') || type === 'fastest_lap_new') return 'bg-green-900/50 text-green-300';
+    if (type.startsWith('lead') || type === 'fastest_lap_new' || type === 'local_connect' || type === 'race_end') return 'bg-green-900/50 text-green-300';
     return 'bg-slate-800/40 border-amber-700/20';
   };
+
+  // --- NEW: Helper function for rich status badges ---
+  const getStatus = (racer: Racer) => {
+    const baseClass = "text-xs font-semibold px-2.5 py-0.5 rounded-full";
+    if (racer.dnf) {
+      return <span className={`${baseClass} bg-red-900/40 text-red-300`}>DNF</span>;
+    }
+    if (racer.finished) {
+      return <span className={`${baseClass} bg-blue-900/40 text-blue-300`}>Finished</span>;
+    }
+    switch (racer.state) {
+      case 'pit_entry':
+        return <span className={`${baseClass} bg-yellow-900/40 text-yellow-300`}>Pitting</span>;
+      case 'in_pit':
+        return <span className={`${baseClass} bg-yellow-900/40 text-yellow-300`}>In Pit</span>;
+      case 'crashed_on_track':
+        return <span className={`${baseClass} bg-red-900/40 text-red-300`}>Crashed</span>;
+      case 'on_track':
+      default:
+        return <span className={`${baseClass} bg-green-900/40 text-green-300`}>On Track</span>;
+    }
+  };
+
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-950 via-red-950/20 to-slate-900 text-slate-100">
@@ -631,6 +647,12 @@ function DashboardPage({ walletAddress, walletHolder, isWalletConnected }: { wal
                 <div className="text-xs text-amber-400 font-mono">{walletAddress?.slice(0, 10)}...</div>
               </div>
             </button>
+            <button
+              onClick={() => alert('New racer minted successfully!')}
+              className="px-4 py-2 bg-gradient-to-r from-red-600 to-amber-500 rounded-lg text-xs font-semibold hover:shadow-lg hover:shadow-red-500/50 transition-all active:scale-95"
+            >
+              Mint
+            </button>
           </div>
         </div>
       </header>
@@ -638,11 +660,10 @@ function DashboardPage({ walletAddress, walletHolder, isWalletConnected }: { wal
       {/* Main Content */}
       <main className="relative z-10 max-w-7xl mx-auto px-4 sm:px-6 py-8 space-y-8">
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Live Race Card */}
+          {/* Live Race Card */}Live Auctions
           <div className="lg:col-span-2 group relative bg-gradient-to-b from-red-900/20 to-slate-900/20 rounded-2xl border border-red-700/30 overflow-hidden">
             <div className="absolute inset-0 bg-gradient-to-r from-red-600/10 to-amber-500/10 opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
-
-            <div className="relative p-6">
+            <div className="relative p-6 space-y-5">
               <div className="flex items-center justify-between">
                 <div>
                   <h2 className="text-2xl font-black text-transparent bg-clip-text bg-linear-to-r from-red-400 to-amber-300 flex items-center gap-3">
@@ -653,12 +674,10 @@ function DashboardPage({ walletAddress, walletHolder, isWalletConnected }: { wal
                   </p>
                 </div>
                 <div className="text-right">
-                  {/* *** 4. UPDATE JSX TO USE DYNAMIC TIME *** */}
                   <div className="text-3xl font-black text-amber-400">{formatTime(currentTick)}</div>
                   <p className="text-xs text-red-300">Elapsed</p>
                 </div>
               </div>
-
               <RaceViewer2D leaderboard={leaderboard} raceConfig={raceConfig} />
             </div>
           </div>
@@ -666,13 +685,11 @@ function DashboardPage({ walletAddress, walletHolder, isWalletConnected }: { wal
           {/* Live Commentary Card */}
           <div className="group relative bg-gradient-to-b from-amber-900/20 to-slate-900/20 rounded-2xl border border-amber-700/30 overflow-hidden">
             <div className="absolute inset-0 bg-gradient-to-r from-amber-600/10 to-red-500/10 opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
-
             <div className="relative p-6 space-y-4">
               <div className="flex items-center justify-between">
                 <h2 className="text-xl font-black text-transparent bg-clip-text bg-linear-to-r from-amber-400 to-red-300">Live Commentary</h2>
                 <div className={`w-2 h-2 rounded-full ${isConnected ? 'bg-red-500 animate-pulse' : 'bg-slate-600'}`}></div>
               </div>
-
               <div className="space-y-3 max-h-130 overflow-y-auto pr-2 scrollbar-thin scrollbar-thumb-red-600 scrollbar-track-slate-800">
                 {commentary.length === 0 && (
                   <div className="bg-slate-800/40 p-3 rounded-lg border border-amber-700/20">
@@ -689,13 +706,24 @@ function DashboardPage({ walletAddress, walletHolder, isWalletConnected }: { wal
           </div>
         </div>
 
-        {/* Leaderboard Section */}
+        {/* --- UPDATED LEADERBOARD SECTION --- */}
         <div className="group relative bg-gradient-to-b from-red-900/20 to-slate-900/20 rounded-2xl border border-red-700/30 overflow-hidden">
           <div className="absolute inset-0 bg-gradient-to-r from-red-600/10 to-amber-500/10 opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
-
           <div className="relative p-6 space-y-5">
             <h2 className="text-2xl font-black text-transparent bg-clip-text bg-linear-to-r from-red-400 to-amber-300">Leaderboard</h2>
 
+            {/* --- NEW: Header Row --- */}
+            <div className="grid grid-cols-12 gap-4 px-3 text-xs font-semibold text-slate-400 uppercase">
+              <div className="col-span-1">#</div>
+              <div className="col-span-3">Name</div>
+              <div className="col-span-1 text-right">Speed</div>
+              <div className="col-span-1 text-right">Tyre</div>
+              <div className="col-span-1 text-right">Points</div>
+              <div className="col-span-3 text-right">Price</div>
+              <div className="col-span-2 text-center">Status</div>
+            </div>
+
+            {/* --- NEW: Body --- */}
             <div className="space-y-2 max-h-96 overflow-y-auto pr-2">
               {leaderboard.length === 0 && (
                 <div className="flex items-center gap-4 p-3 bg-slate-800/30 rounded-lg border border-slate-700/30">
@@ -705,23 +733,40 @@ function DashboardPage({ walletAddress, walletHolder, isWalletConnected }: { wal
               {leaderboard.map((racer) => (
                 <div
                   key={racer.id}
-                  className={`flex items-center gap-4 p-3 rounded-lg border transition-all ${racer.rank === 1 ? 'bg-red-800/50 border-red-600' : 'bg-slate-800/30 border-slate-700/30 hover:bg-slate-800/50 hover:border-red-700/50'}`}
+                  className={`grid grid-cols-12 gap-4 items-center p-3 rounded-lg border transition-all ${
+                    racer.rank === 1 ? 'bg-red-800/50 border-red-600' : 'bg-slate-800/30 border-slate-700/30'
+                  }`}
                 >
-                  <div className="w-7 h-7 rounded-md bg-gradient-to-br from-red-600 to-amber-500 flex items-center justify-center text-white font-bold text-xs shrink-0">
-                    {racer.rank}
+                  {/* Rank */}
+                  <div className="col-span-1">
+                    <div className="w-7 h-7 rounded-md bg-gradient-to-br from-red-600 to-amber-500 flex items-center justify-center text-white font-bold text-xs shrink-0">
+                      {racer.rank}
+                    </div>
                   </div>
-                  <div className="flex-1 min-w-0">
+                  {/* Name & Laps */}
+                  <div className="col-span-3 flex-1 min-w-0">
                     <p className="font-semibold text-white text-sm truncate">{racer.name}</p>
                     <p className="text-xs text-slate-500">Lap {racer.lapsCompleted}/{raceConfig?.laps || '10'}</p>
                   </div>
-                  <div className="hidden sm:block text-right shrink-0">
-                    <div className="text-amber-300 text-sm font-semibold">{racer.finished || racer.dnf ? '---' : `${racer.speed} km/h`}</div>
-                    <p className="text-xs text-slate-500">{racer.bestLapMs ? `${(racer.bestLapMs / 1000).toFixed(2)}s` : 'No Lap'}</p>
+                  {/* Speed */}
+                  <div className="col-span-1 text-right">
+                    <p className="text-amber-300 text-sm font-semibold">{racer.finished || racer.dnf ? '---' : `${racer.speed}`}</p>
                   </div>
-                  <div className="text-right shrink-0">
-                    <p className={`text-sm font-semibold ${racer.rank === 1 ? 'text-red-400' : (racer.dnf ? 'text-red-500' : 'text-slate-500')}`}>
-                      {racer.state === 'dnf' ? 'DNF' : racer.finished ? 'Finished' : (racer.state.includes('pit') ? 'In Pit' : 'On Track')}
-                    </p>
+                  {/* Tyre */}
+                  <div className="col-span-1 text-right">
+                    <p className="text-sm font-semibold">{racer.finished || racer.dnf ? '---' : `${Math.round(racer.tyreWear)}`}</p>
+                  </div>
+                  {/* Points */}
+                  <div className="col-span-1 text-right">
+                    <p className="text-sm font-bold text-yellow-400">{racer.provisionalPoints || '0'}</p>
+                  </div>
+                  {/* Price */}
+                  <div className="col-span-3 text-right">
+                    <p className="text-sm font-semibold">${racer.price.toFixed(2)}</p>
+                  </div>
+                  {/* Status */}
+                  <div className="col-span-2 flex justify-center items-center">
+                    {getStatus(racer)}
                   </div>
                 </div>
               ))}
@@ -731,7 +776,6 @@ function DashboardPage({ walletAddress, walletHolder, isWalletConnected }: { wal
 
         {/* Betting and Auction Sections */}
         <BettingPage racers={leaderboard} raceConfig={raceConfig} />
-
         <AuctionPage />
       </main>
 
