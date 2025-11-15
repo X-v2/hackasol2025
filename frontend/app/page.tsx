@@ -785,7 +785,6 @@ function DashboardPage({ walletAddress, walletHolder, isWalletConnected }: { wal
               <h1 className="text-2xl font-black text-transparent bg-clip-text bg-linear-to-r from-red-400 to-amber-300">
                 TurboTradeX
               </h1>
-              <p className="text-xs text-red-300">Formula 1 × Wall Street × Web3</p>
             </div>
           </div>
 
